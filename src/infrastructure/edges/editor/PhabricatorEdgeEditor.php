@@ -220,13 +220,15 @@ final class PhabricatorEdgeEditor extends PhabricatorEditor {
 
     foreach ($writes as $write) {
       list($key, $src_type, $data) = $write;
-      $conn_w = PhabricatorEdgeConfig::establishConnection($src_type, 'w');
-      queryfx(
-        $conn_w,
-        'INSERT INTO %T (data) VALUES (%s)',
-        PhabricatorEdgeConfig::TABLE_NAME_EDGEDATA,
-        $data);
-      $this->addEdges[$key]['data_id'] = $conn_w->getInsertID();
+      if($src_type) {
+        $conn_w = PhabricatorEdgeConfig::establishConnection($src_type, 'w');
+        queryfx(
+          $conn_w,
+          'INSERT INTO %T (data) VALUES (%s)',
+          PhabricatorEdgeConfig::TABLE_NAME_EDGEDATA,
+          $data);
+        $this->addEdges[$key]['data_id'] = $conn_w->getInsertID();
+      }
     }
   }
 

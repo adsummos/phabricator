@@ -169,6 +169,7 @@ final class PhabricatorEdgeConfig extends PhabricatorEdgeConstants {
 
   public static function establishConnection($phid_type, $conn_type) {
     $map = PhabricatorPHIDType::getAllTypes();
+
     if (isset($map[$phid_type])) {
       $type = $map[$phid_type];
       $object = $type->newObject();
@@ -185,6 +186,10 @@ final class PhabricatorEdgeConfig extends PhabricatorEdgeConstants {
       PhabricatorPHIDConstants::PHID_TYPE_XOBJ  => 'DoorkeeperExternalObject',
     );
 
+    print("TYPE");
+    print_r($phid_type);
+    print("GOODBYE");
+        
     $class = idx($class_map, $phid_type);
 
     if (!$class) {
