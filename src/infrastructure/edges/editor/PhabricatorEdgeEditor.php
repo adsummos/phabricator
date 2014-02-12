@@ -220,7 +220,7 @@ final class PhabricatorEdgeEditor extends PhabricatorEditor {
 
     foreach ($writes as $write) {
       list($key, $src_type, $data) = $write;
-      if($src_type) {
+      if($src_type && $src_type != '????') {
         $conn_w = PhabricatorEdgeConfig::establishConnection($src_type, 'w');
         queryfx(
           $conn_w,
