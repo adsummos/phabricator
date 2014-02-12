@@ -259,7 +259,7 @@ final class PhabricatorEdgeEditor extends PhabricatorEditor {
 
     $inserts = array();
     foreach ($adds as $src_type => $edges) {
-      if($src_type != '$$$$') {
+      if($src_type != '????') {
         $conn_w = PhabricatorEdgeConfig::establishConnection($src_type, 'w');
         $sql = array();
         foreach ($edges as $edge) {
