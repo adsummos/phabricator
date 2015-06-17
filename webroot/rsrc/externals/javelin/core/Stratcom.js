@@ -31,7 +31,6 @@
  * @task sigil    Managing Sigils
  * @task meta     Managing Metadata
  * @task internal Internals
- * @group event
  */
 JX.install('Stratcom', {
   statics : {
@@ -224,7 +223,7 @@ JX.install('Stratcom', {
       }
 
       // Add a remove function to the listener
-      listener['remove'] = function() {
+      listener.remove = function() {
         if (listener._callback) {
           delete listener._callback;
           for (var ii = 0; ii < ids.length; ii++) {

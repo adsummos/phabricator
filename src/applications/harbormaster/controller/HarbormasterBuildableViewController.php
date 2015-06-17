@@ -20,99 +20,23 @@ final class HarbormasterBuildableViewController
       ->withIDs(array($id))
       ->needBuildableHandles(true)
       ->needContainerHandles(true)
-      ->needBuilds(true)
       ->executeOne();
     if (!$buildable) {
       return new Aphront404Response();
     }
 
-    $build_list = id(new PHUIObjectItemListView())
-      ->setUser($viewer);
-    foreach ($buildable->getBuilds() as $build) {
-      $view_uri = $this->getApplicationURI('/build/'.$build->getID().'/');
-      $item = id(new PHUIObjectItemView())
-        ->setObjectName(pht('Build %d', $build->getID()))
-        ->setHeader($build->getName())
-        ->setHref($view_uri);
+    // Pull builds and build targets.
+    $builds = id(new HarbormasterBuildQuery())
+      ->setViewer($viewer)
+      ->withBuildablePHIDs(array($buildable->getPHID()))
+      ->needBuildTargets(true)
+      ->execute();
 
-      switch ($build->getBuildStatus()) {
-        case HarbormasterBuild::STATUS_INACTIVE:
-          $item->setBarColor('grey');
-          $item->addAttribute(pht('Inactive'));
-          break;
-        case HarbormasterBuild::STATUS_PENDING:
-          $item->setBarColor('blue');
-          $item->addAttribute(pht('Pending'));
-          break;
-        case HarbormasterBuild::STATUS_WAITING:
-          $item->setBarColor('violet');
-          $item->addAttribute(pht('Waiting'));
-          break;
-        case HarbormasterBuild::STATUS_BUILDING:
-          $item->setBarColor('yellow');
-          $item->addAttribute(pht('Building'));
-          break;
-        case HarbormasterBuild::STATUS_PASSED:
-          $item->setBarColor('green');
-          $item->addAttribute(pht('Passed'));
-          break;
-        case HarbormasterBuild::STATUS_FAILED:
-          $item->setBarColor('red');
-          $item->addAttribute(pht('Failed'));
-          break;
-        case HarbormasterBuild::STATUS_ERROR:
-          $item->setBarColor('red');
-          $item->addAttribute(pht('Unexpected Error'));
-          break;
-        case HarbormasterBuild::STATUS_STOPPED:
-          $item->setBarColor('black');
-          $item->addAttribute(pht('Stopped'));
-          break;
-      }
+    $buildable->attachBuilds($builds);
 
-      if ($build->isRestarting()) {
-        $item->addIcon('backward', pht('Restarting'));
-      } else if ($build->isStopping()) {
-        $item->addIcon('stop', pht('Stopping'));
-      } else if ($build->isResuming()) {
-        $item->addIcon('play', pht('Resuming'));
-      }
+    $build_list = $this->buildBuildList($buildable);
 
-      $build_id = $build->getID();
-
-      $restart_uri = "build/restart/{$build_id}/buildable/";
-      $resume_uri = "build/resume/{$build_id}/buildable/";
-      $stop_uri = "build/stop/{$build_id}/buildable/";
-
-      $item->addAction(
-        id(new PHUIListItemView())
-          ->setIcon('backward')
-          ->setName(pht('Restart'))
-          ->setHref($this->getApplicationURI($restart_uri))
-          ->setWorkflow(true)
-          ->setDisabled(!$build->canRestartBuild()));
-
-      if ($build->canResumeBuild()) {
-        $item->addAction(
-          id(new PHUIListItemView())
-            ->setIcon('play')
-            ->setName(pht('Resume'))
-            ->setHref($this->getApplicationURI($resume_uri))
-            ->setWorkflow(true));
-      } else {
-        $item->addAction(
-          id(new PHUIListItemView())
-            ->setIcon('stop')
-            ->setName(pht('Stop'))
-            ->setHref($this->getApplicationURI($stop_uri))
-            ->setWorkflow(true)
-            ->setDisabled(!$build->canStopBuild()));
-      }
-
-      $build_list->addItem($item);
-    }
-
-    $title = pht("Buildable %d", $id);
+    $title = pht('Buildable %d', $id);
 
     $header = id(new PHUIHeaderView())
       ->setHeader($title)
@@ -121,6 +45,11 @@ final class HarbormasterBuildableViewController
 
     $box = id(new PHUIObjectBoxView())
       ->setHeader($header);
+
+    $timeline = $this->buildTransactionTimeline(
+      $buildable,
+      new HarbormasterBuildableTransactionQuery());
+    $timeline->setShouldTerminate(true);
 
     $actions = $this->buildActionList($buildable);
     $this->buildPropertyLists($box, $buildable, $actions);
@@ -133,10 +62,10 @@ final class HarbormasterBuildableViewController
         $crumbs,
         $box,
         $build_list,
+        $timeline,
       ),
       array(
         'title' => $title,
-        'device' => true,
       ));
   }
 
@@ -177,7 +106,7 @@ final class HarbormasterBuildableViewController
 
     $list->addAction(
       id(new PhabricatorActionView())
-        ->setIcon('backward')
+        ->setIcon('fa-repeat')
         ->setName(pht('Restart All Builds'))
         ->setHref($this->getApplicationURI($restart_uri))
         ->setWorkflow(true)
@@ -185,15 +114,15 @@ final class HarbormasterBuildableViewController
 
     $list->addAction(
       id(new PhabricatorActionView())
-        ->setIcon('stop')
-        ->setName(pht('Stop All Builds'))
+        ->setIcon('fa-pause')
+        ->setName(pht('Pause All Builds'))
         ->setHref($this->getApplicationURI($stop_uri))
         ->setWorkflow(true)
         ->setDisabled(!$can_stop || !$can_edit));
 
     $list->addAction(
       id(new PhabricatorActionView())
-        ->setIcon('play')
+        ->setIcon('fa-play')
         ->setName(pht('Resume All Builds'))
         ->setHref($this->getApplicationURI($resume_uri))
         ->setWorkflow(true)
@@ -231,6 +160,95 @@ final class HarbormasterBuildableViewController
         ? pht('Manual Buildable')
         : pht('Automatic Buildable'));
 
+  }
+
+  private function buildBuildList(HarbormasterBuildable $buildable) {
+    $viewer = $this->getRequest()->getUser();
+
+    $build_list = id(new PHUIObjectItemListView())
+      ->setUser($viewer);
+    foreach ($buildable->getBuilds() as $build) {
+      $view_uri = $this->getApplicationURI('/build/'.$build->getID().'/');
+      $item = id(new PHUIObjectItemView())
+        ->setObjectName(pht('Build %d', $build->getID()))
+        ->setHeader($build->getName())
+        ->setHref($view_uri);
+
+      $status = $build->getBuildStatus();
+      $item->setBarColor(HarbormasterBuild::getBuildStatusColor($status));
+
+      $item->addAttribute(HarbormasterBuild::getBuildStatusName($status));
+
+      if ($build->isRestarting()) {
+        $item->addIcon('fa-repeat', pht('Restarting'));
+      } else if ($build->isStopping()) {
+        $item->addIcon('fa-pause', pht('Pausing'));
+      } else if ($build->isResuming()) {
+        $item->addIcon('fa-play', pht('Resuming'));
+      }
+
+      $build_id = $build->getID();
+
+      $restart_uri = "build/restart/{$build_id}/buildable/";
+      $resume_uri = "build/resume/{$build_id}/buildable/";
+      $stop_uri = "build/stop/{$build_id}/buildable/";
+
+      $item->addAction(
+        id(new PHUIListItemView())
+          ->setIcon('fa-repeat')
+          ->setName(pht('Restart'))
+          ->setHref($this->getApplicationURI($restart_uri))
+          ->setWorkflow(true)
+          ->setDisabled(!$build->canRestartBuild()));
+
+      if ($build->canResumeBuild()) {
+        $item->addAction(
+          id(new PHUIListItemView())
+            ->setIcon('fa-play')
+            ->setName(pht('Resume'))
+            ->setHref($this->getApplicationURI($resume_uri))
+            ->setWorkflow(true));
+      } else {
+        $item->addAction(
+          id(new PHUIListItemView())
+            ->setIcon('fa-pause')
+            ->setName(pht('Pause'))
+            ->setHref($this->getApplicationURI($stop_uri))
+            ->setWorkflow(true)
+            ->setDisabled(!$build->canStopBuild()));
+      }
+
+      $targets = $build->getBuildTargets();
+
+      if ($targets) {
+        $target_list = id(new PHUIStatusListView());
+        foreach ($targets as $target) {
+          $status = $target->getTargetStatus();
+          $icon = HarbormasterBuildTarget::getBuildTargetStatusIcon($status);
+          $color = HarbormasterBuildTarget::getBuildTargetStatusColor($status);
+          $status_name =
+            HarbormasterBuildTarget::getBuildTargetStatusName($status);
+
+          $name = $target->getName();
+
+          $target_list->addItem(
+            id(new PHUIStatusItemView())
+              ->setIcon($icon, $color, $status_name)
+              ->setTarget(pht('Target %d', $target->getID()))
+              ->setNote($name));
+        }
+
+        $target_box = id(new PHUIBoxView())
+          ->addPadding(PHUI::PADDING_SMALL)
+          ->appendChild($target_list);
+
+        $item->appendChild($target_box);
+      }
+
+      $build_list->addItem($item);
+    }
+
+    return $build_list;
   }
 
 }

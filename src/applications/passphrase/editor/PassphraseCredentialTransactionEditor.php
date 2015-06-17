@@ -3,6 +3,14 @@
 final class PassphraseCredentialTransactionEditor
   extends PhabricatorApplicationTransactionEditor {
 
+  public function getEditorApplicationClass() {
+    return 'PhabricatorPassphraseApplication';
+  }
+
+  public function getEditorObjectsDescription() {
+    return pht('Passphrase Credentials');
+  }
+
   public function getTransactionTypes() {
     $types = parent::getTransactionTypes();
 
@@ -14,6 +22,9 @@ final class PassphraseCredentialTransactionEditor
     $types[] = PassphraseCredentialTransaction::TYPE_USERNAME;
     $types[] = PassphraseCredentialTransaction::TYPE_SECRET_ID;
     $types[] = PassphraseCredentialTransaction::TYPE_DESTROY;
+    $types[] = PassphraseCredentialTransaction::TYPE_LOOKEDATSECRET;
+    $types[] = PassphraseCredentialTransaction::TYPE_LOCK;
+    $types[] = PassphraseCredentialTransaction::TYPE_CONDUIT;
 
     return $types;
   }
@@ -34,7 +45,13 @@ final class PassphraseCredentialTransactionEditor
       case PassphraseCredentialTransaction::TYPE_SECRET_ID:
         return $object->getSecretID();
       case PassphraseCredentialTransaction::TYPE_DESTROY:
-        return $object->getIsDestroyed();
+        return (int)$object->getIsDestroyed();
+      case PassphraseCredentialTransaction::TYPE_LOCK:
+        return (int)$object->getIsLocked();
+      case PassphraseCredentialTransaction::TYPE_CONDUIT:
+        return (int)$object->getAllowConduit();
+      case PassphraseCredentialTransaction::TYPE_LOOKEDATSECRET:
+        return null;
     }
 
     return parent::getCustomTransactionOldValue($object, $xaction);
@@ -48,8 +65,13 @@ final class PassphraseCredentialTransactionEditor
       case PassphraseCredentialTransaction::TYPE_DESCRIPTION:
       case PassphraseCredentialTransaction::TYPE_USERNAME:
       case PassphraseCredentialTransaction::TYPE_SECRET_ID:
-      case PassphraseCredentialTransaction::TYPE_DESTROY:
+      case PassphraseCredentialTransaction::TYPE_LOOKEDATSECRET:
         return $xaction->getNewValue();
+      case PassphraseCredentialTransaction::TYPE_DESTROY:
+      case PassphraseCredentialTransaction::TYPE_LOCK:
+        return (int)$xaction->getNewValue();
+      case PassphraseCredentialTransaction::TYPE_CONDUIT:
+        return (int)$xaction->getNewValue();
     }
     return parent::getCustomTransactionNewValue($object, $xaction);
   }
@@ -86,11 +108,13 @@ final class PassphraseCredentialTransactionEditor
           }
         }
         return;
-      case PhabricatorTransactions::TYPE_VIEW_POLICY:
-        $object->setViewPolicy($xaction->getNewValue());
+      case PassphraseCredentialTransaction::TYPE_LOOKEDATSECRET:
         return;
-      case PhabricatorTransactions::TYPE_EDIT_POLICY:
-        $object->setEditPolicy($xaction->getNewValue());
+      case PassphraseCredentialTransaction::TYPE_LOCK:
+        $object->setIsLocked((int)$xaction->getNewValue());
+        return;
+      case PassphraseCredentialTransaction::TYPE_CONDUIT:
+        $object->setAllowConduit((int)$xaction->getNewValue());
         return;
     }
 
@@ -107,8 +131,9 @@ final class PassphraseCredentialTransactionEditor
       case PassphraseCredentialTransaction::TYPE_USERNAME:
       case PassphraseCredentialTransaction::TYPE_SECRET_ID:
       case PassphraseCredentialTransaction::TYPE_DESTROY:
-      case PhabricatorTransactions::TYPE_VIEW_POLICY:
-      case PhabricatorTransactions::TYPE_EDIT_POLICY:
+      case PassphraseCredentialTransaction::TYPE_LOOKEDATSECRET:
+      case PassphraseCredentialTransaction::TYPE_LOCK:
+      case PassphraseCredentialTransaction::TYPE_CONDUIT:
         return;
     }
 
@@ -149,6 +174,10 @@ final class PassphraseCredentialTransactionEditor
         }
         break;
       case PassphraseCredentialTransaction::TYPE_USERNAME:
+        $credential_type = $object->getCredentialTypeImplementation();
+        if (!$credential_type->shouldRequireUsername()) {
+          break;
+        }
         $missing = $this->validateIsEmptyTextField(
           $object->getUsername(),
           $xactions);
@@ -169,5 +198,7 @@ final class PassphraseCredentialTransactionEditor
     return $errors;
   }
 
-
+  protected function supportsSearch() {
+    return true;
+  }
 }

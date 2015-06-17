@@ -6,16 +6,17 @@ final class PhabricatorMailManagementListOutboundWorkflow
   protected function didConstruct() {
     $this
       ->setName('list-outbound')
-      ->setSynopsis('List outbound messages sent by Phabricator.')
+      ->setSynopsis(pht('List outbound messages sent by Phabricator.'))
       ->setExamples(
-        "**list-outbound**")
+        '**list-outbound**')
       ->setArguments(
         array(
           array(
             'name'    => 'limit',
             'param'   => 'N',
             'default' => 100,
-            'help'    => 'Show a specific number of messages (default 100).',
+            'help'    => pht(
+              'Show a specific number of messages (default 100).'),
           ),
         ));
   }
@@ -29,20 +30,27 @@ final class PhabricatorMailManagementListOutboundWorkflow
       $args->getArg('limit'));
 
     if (!$mails) {
-      $console->writeErr("%s\n", pht("No sent mail."));
+      $console->writeErr("%s\n", pht('No sent mail.'));
       return 0;
     }
 
+    $table = id(new PhutilConsoleTable())
+      ->setShowHeader(false)
+      ->addColumn('id',      array('title' => pht('ID')))
+      ->addColumn('status',  array('title' => pht('Status')))
+      ->addColumn('subject', array('title' => pht('Subject')));
+
     foreach (array_reverse($mails) as $mail) {
-      $console->writeOut(
-        "%s\n",
-        sprintf(
-          "% 8d  %-8s  %s",
-          $mail->getID(),
-          PhabricatorMetaMTAMail::getReadableStatus($mail->getStatus()),
-          $mail->getSubject()));
+      $status = $mail->getStatus();
+
+      $table->addRow(array(
+        'id'      => $mail->getID(),
+        'status'  => PhabricatorMetaMTAMail::getReadableStatus($status),
+        'subject' => $mail->getSubject(),
+      ));
     }
 
+    $table->draw();
     return 0;
   }
 

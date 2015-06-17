@@ -1,8 +1,5 @@
 <?php
 
-/**
- * @group ponder
- */
 final class PonderQuestionStatus extends PonderConstants {
 
   const STATUS_OPEN     = 0;
@@ -20,7 +17,7 @@ final class PonderQuestionStatus extends PonderConstants {
       self::STATUS_OPEN     => pht('Open'),
       self::STATUS_CLOSED   => pht('Closed by author'),
     );
-    return idx($map, $status, '???');
+    return idx($map, $status, pht('Unknown'));
   }
 
   public static function getQuestionStatusTagColor($status) {

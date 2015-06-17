@@ -10,7 +10,7 @@ foreach (new LiskMigrationIterator($table) as $revision) {
   $revision_id = $revision->getID();
   $revision_phid = $revision->getPHID();
 
-  echo "Migrating reviewers for D{$revision_id}...\n";
+  echo pht('Migrating reviewers for %s...', "D{$revision_id}")."\n";
 
   $reviewer_phids = queryfx_all(
     $conn_w,
@@ -25,13 +25,18 @@ foreach (new LiskMigrationIterator($table) as $revision) {
     continue;
   }
 
-  $editor = id(new PhabricatorEdgeEditor())
-    ->setActor(PhabricatorUser::getOmnipotentUser());
-
+  $editor = new PhabricatorEdgeEditor();
   foreach ($reviewer_phids as $dst) {
+    if (phid_get_type($dst) == PhabricatorPHIDConstants::PHID_TYPE_UNKNOWN) {
+      // At least one old install ran into some issues here. Skip the row if we
+      // can't figure out what the destination PHID is. See here:
+      // https://github.com/phacility/phabricator/pull/507
+      continue;
+    }
+
     $editor->addEdge(
       $revision_phid,
-      PhabricatorEdgeConfig::TYPE_DREV_HAS_REVIEWER,
+      DifferentialRevisionHasReviewerEdgeType::EDGECONST,
       $dst,
       array(
         'data' => array(
@@ -43,4 +48,4 @@ foreach (new LiskMigrationIterator($table) as $revision) {
   $editor->save();
 }
 
-echo "Done.\n";
+echo pht('Done.')."\n";

@@ -1,11 +1,9 @@
 <?php
 
-/**
- * @group search
- */
-final class PhabricatorSearchRelationship {
+final class PhabricatorSearchRelationship extends Phobject {
 
   const RELATIONSHIP_AUTHOR     = 'auth';
+  const RELATIONSHIP_BOOK       = 'book';
   const RELATIONSHIP_REVIEWER   = 'revw';
   const RELATIONSHIP_SUBSCRIBER = 'subs';
   const RELATIONSHIP_COMMENTER  = 'comm';

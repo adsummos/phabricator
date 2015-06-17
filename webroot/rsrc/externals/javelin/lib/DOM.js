@@ -32,8 +32,6 @@
  *
  * @param  string  "id" attribute to select from the document.
  * @return Node    Node with the specified "id" attribute.
- *
- * @group dom
  */
 JX.$ = function(id) {
 
@@ -48,14 +46,14 @@ JX.$ = function(id) {
     if (__DEV__) {
       if (node && (node.id != id)) {
         JX.$E(
-          'JX.$("'+id+'"): '+
+          'JX.$(\''+id+'\'): '+
           'document.getElementById() returned an element without the '+
           'correct ID. This usually means that the element you are trying '+
           'to select is being masked by a form with the same value in its '+
           '"name" attribute.');
       }
     }
-    JX.$E("JX.$('" + id + "') call matched no nodes.");
+    JX.$E('JX.$(\'' + id + '\') call matched no nodes.');
   }
 
   return node;
@@ -81,8 +79,6 @@ JX.$ = function(id) {
  *
  * @task build String into HTML
  * @task nodes HTML into Nodes
- *
- * @group dom
  */
 JX.install('HTML', {
 
@@ -193,8 +189,6 @@ JX.install('HTML', {
  *               know it is from a trusted source and any data in it has been
  *               properly escaped.
  * @return JX.HTML HTML object, suitable for use with @{JX.$N}.
- *
- * @group dom
  */
 JX.$H = function(str) {
   return new JX.HTML(str);
@@ -274,8 +268,6 @@ JX.$H = function(str) {
  *                                which may be dangerous).
  * @return Node                   New node with whatever attributes and
  *                                content were specified.
- *
- * @group dom
  */
 JX.$N = function(tag, attr, content) {
   if (typeof content == 'undefined' &&
@@ -338,14 +330,14 @@ JX.$N = function(tag, attr, content) {
  * @task convenience Convenience Methods
  * @task query Finding Nodes in the DOM
  * @task view Changing View State
- *
- * @group dom
  */
 JX.install('DOM', {
   statics : {
     _autoid : 0,
     _uniqid : 0,
     _metrics : {},
+    _frameNode: null,
+    _contentNode: null,
 
 
 /* -(  Changing DOM Content  )----------------------------------------------- */
@@ -543,7 +535,7 @@ JX.install('DOM', {
     },
 
 
-/* -(  Serializing Froms  )-------------------------------------------------- */
+/* -(  Serializing Forms  )-------------------------------------------------- */
 
 
     /**
@@ -724,7 +716,7 @@ JX.install('DOM', {
         node.className += ' '+className;
       } else if (has && !add) {
         node.className = node.className.replace(
-          new RegExp('(^|\\s)' + className + '(?:\\s|$)', 'g'), ' ');
+          new RegExp('(^|\\s)' + className + '(?:\\s|$)', 'g'), ' ').trim();
       }
     },
 
@@ -944,14 +936,73 @@ JX.install('DOM', {
       try { node.focus(); } catch (lol_ie) {}
     },
 
+
+    /**
+     * Set specific nodes as content and frame nodes for the document.
+     *
+     * This will cause @{method:scrollTo} and @{method:scrollToPosition} to
+     * affect the given frame node instead of the window. This is useful if the
+     * page content is broken into multiple panels which scroll independently.
+     *
+     * Normally, both nodes are the document body.
+     *
+     * @task view
+     * @param Node Node to set as the scroll frame.
+     * @param Node Node to set as the content frame.
+     * @return void
+     */
+    setContentFrame: function(frame_node, content_node) {
+      JX.DOM._frameNode = frame_node;
+      JX.DOM._contentNode = content_node;
+    },
+
+
+    /**
+     * Get the current content frame, or `document.body` if one has not been
+     * set.
+     *
+     * @task view
+     * @return Node The node which frames the main page content.
+     * @return void
+     */
+    getContentFrame: function() {
+      return JX.DOM._contentNode || document.body;
+    },
+
     /**
      * Scroll to the position of an element in the document.
+     *
+     * If @{method:setContentFrame} has been used to set a frame, that node is
+     * scrolled.
+     *
      * @task view
      * @param Node Node to move document scroll position to, if possible.
      * @return void
      */
     scrollTo : function(node) {
-      window.scrollTo(0, JX.$V(node).y);
+      var pos = JX.Vector.getPosWithScroll(node);
+      JX.DOM.scrollToPosition(0, pos.y);
+    },
+
+    /**
+     * Scroll to a specific position in the document.
+     *
+     * If @{method:setContentFrame} has been used to set a frame, that node is
+     * scrolled.
+     *
+     * @task view
+     * @param int X position, in pixels.
+     * @param int Y position, in pixels.
+     * @return void
+     */
+    scrollToPosition: function(x, y) {
+      var self = JX.DOM;
+      if (self._frameNode) {
+        self._frameNode.scrollLeft = x;
+        self._frameNode.scrollTop = y;
+      } else {
+        window.scrollTo(x, y);
+      }
     },
 
     _getAutoID : function(node) {
@@ -962,4 +1013,3 @@ JX.install('DOM', {
     }
   }
 });
-

@@ -3,13 +3,17 @@
 final class PhabricatorChatLogChannelListController
   extends PhabricatorChatLogController {
 
+  public function shouldAllowPublic() {
+    return true;
+  }
+
   public function processRequest() {
     $request = $this->getRequest();
     $user = $request->getUser();
 
     $channels = id(new PhabricatorChatLogChannelQuery())
-                ->setViewer($user)
-                ->execute();
+      ->setViewer($user)
+      ->execute();
 
     $list = new PHUIObjectItemListView();
     foreach ($channels as $channel) {
@@ -32,7 +36,6 @@ final class PhabricatorChatLogChannelListController
       ),
       array(
         'title' => pht('Channel List'),
-        'device' => true,
       ));
   }
 }

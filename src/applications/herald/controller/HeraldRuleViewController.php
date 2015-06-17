@@ -28,13 +28,13 @@ final class HeraldRuleViewController extends HeraldController {
 
     if ($rule->getIsDisabled()) {
       $header->setStatus(
-        'oh-open',
+        'fa-ban',
         'red',
-        pht('Disabled'));
+        pht('Archived'));
     } else {
       $header->setStatus(
-        'oh-open',
-        null,
+        'fa-check',
+        'bluegrey',
         pht('Active'));
     }
 
@@ -50,7 +50,10 @@ final class HeraldRuleViewController extends HeraldController {
       ->setHeader($header)
       ->addPropertyList($properties);
 
-    $timeline = $this->buildTimeline($rule);
+    $timeline = $this->buildTransactionTimeline(
+      $rule,
+      new HeraldTransactionQuery());
+    $timeline->setShouldTerminate(true);
 
     return $this->buildApplicationPage(
       array(
@@ -60,7 +63,6 @@ final class HeraldRuleViewController extends HeraldController {
       ),
       array(
         'title' => $rule->getName(),
-        'device' => true,
       ));
   }
 
@@ -82,18 +84,18 @@ final class HeraldRuleViewController extends HeraldController {
       id(new PhabricatorActionView())
         ->setName(pht('Edit Rule'))
         ->setHref($this->getApplicationURI("edit/{$id}/"))
-        ->setIcon('edit')
+        ->setIcon('fa-pencil')
         ->setDisabled(!$can_edit)
         ->setWorkflow(!$can_edit));
 
     if ($rule->getIsDisabled()) {
       $disable_uri = "disable/{$id}/enable/";
-      $disable_icon = 'enable';
-      $disable_name = pht('Enable Rule');
+      $disable_icon = 'fa-check';
+      $disable_name = pht('Activate Rule');
     } else {
       $disable_uri = "disable/{$id}/disable/";
-      $disable_icon = 'disable';
-      $disable_name = pht('Disable Rule');
+      $disable_icon = 'fa-ban';
+      $disable_name = pht('Archive Rule');
     }
 
     $view->addAction(
@@ -114,8 +116,6 @@ final class HeraldRuleViewController extends HeraldController {
 
     $viewer = $this->getRequest()->getUser();
 
-    $this->loadHandles(HeraldAdapter::getHandlePHIDs($rule));
-
     $view = id(new PHUIPropertyListView())
       ->setUser($viewer)
       ->setObject($rule)
@@ -128,9 +128,8 @@ final class HeraldRuleViewController extends HeraldController {
     if ($rule->isPersonalRule()) {
       $view->addProperty(
         pht('Author'),
-        $this->getHandle($rule->getAuthorPHID())->renderLink());
+        $viewer->renderHandle($rule->getAuthorPHID()));
     }
-
 
     $adapter = HeraldAdapter::getAdapterForContentType($rule->getContentType());
     if ($adapter) {
@@ -143,49 +142,20 @@ final class HeraldRuleViewController extends HeraldController {
       if ($rule->isObjectRule()) {
         $view->addProperty(
           pht('Trigger Object'),
-          $this->getHandle($rule->getTriggerObjectPHID())->renderLink());
+          $viewer->renderHandle($rule->getTriggerObjectPHID()));
       }
 
       $view->invokeWillRenderEvent();
 
-      $view->addSectionHeader(pht('Rule Description'));
-      $view->addTextContent(
-        phutil_tag(
-          'div',
-          array(
-            'style' => 'white-space: pre-wrap;',
-          ),
-          $adapter->renderRuleAsText($rule, $this->getLoadedHandles())));
+      $view->addSectionHeader(
+        pht('Rule Description'),
+        PHUIPropertyListView::ICON_SUMMARY);
+
+      $handles = $viewer->loadHandles(HeraldAdapter::getHandlePHIDs($rule));
+      $view->addTextContent($adapter->renderRuleAsText($rule, $handles));
     }
 
     return $view;
-  }
-
-  private function buildTimeline(HeraldRule $rule) {
-    $viewer = $this->getRequest()->getUser();
-
-    $xactions = id(new HeraldTransactionQuery())
-      ->setViewer($viewer)
-      ->withObjectPHIDs(array($rule->getPHID()))
-      ->needComments(true)
-      ->execute();
-
-    $engine = id(new PhabricatorMarkupEngine())
-      ->setViewer($viewer);
-    foreach ($xactions as $xaction) {
-      if ($xaction->getComment()) {
-        $engine->addObject(
-          $xaction->getComment(),
-          PhabricatorApplicationTransactionComment::MARKUP_FIELD_COMMENT);
-      }
-    }
-    $engine->process();
-
-    return id(new PhabricatorApplicationTransactionView())
-      ->setUser($viewer)
-      ->setObjectPHID($rule->getPHID())
-      ->setTransactions($xactions)
-      ->setMarkupEngine($engine);
   }
 
 }

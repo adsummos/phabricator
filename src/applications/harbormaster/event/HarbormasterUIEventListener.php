@@ -31,6 +31,13 @@ final class HarbormasterUIEventListener
       return;
     }
 
+    if ($object instanceof DifferentialRevision) {
+      // TODO: This is a bit hacky and we could probably find a cleaner fix
+      // eventually, but we show build status on each diff, immediately below
+      // this property list, so it's redundant to show it on the revision view.
+      return;
+    }
+
     if (!($object instanceof HarbormasterBuildableInterface)) {
       return;
     }
@@ -72,35 +79,12 @@ final class HarbormasterUIEventListener
       $item = new PHUIStatusItemView();
       $item->setTarget($build_handles[$build->getPHID()]->renderLink());
 
-      switch ($build->getBuildStatus()) {
-        case HarbormasterBuild::STATUS_INACTIVE:
-          $item->setIcon('open-dark', pht('Inactive'));
-          break;
-        case HarbormasterBuild::STATUS_PENDING:
-          $item->setIcon('open-blue', pht('Pending'));
-          break;
-        case HarbormasterBuild::STATUS_WAITING:
-          $item->setIcon('up-blue', pht('Waiting on Resource'));
-          break;
-        case HarbormasterBuild::STATUS_BUILDING:
-          $item->setIcon('right-blue', pht('Building'));
-          break;
-        case HarbormasterBuild::STATUS_PASSED:
-          $item->setIcon('accept-green', pht('Passed'));
-          break;
-        case HarbormasterBuild::STATUS_FAILED:
-          $item->setIcon('reject-red', pht('Failed'));
-          break;
-        case HarbormasterBuild::STATUS_ERROR:
-          $item->setIcon('minus-red', pht('Unexpected Error'));
-          break;
-        case HarbormasterBuild::STATUS_STOPPED:
-          $item->setIcon('minus-dark', pht('Stopped'));
-          break;
-        default:
-          $item->setIcon('question', pht('Unknown'));
-          break;
-      }
+      $status = $build->getBuildStatus();
+      $status_name = HarbormasterBuild::getBuildStatusName($status);
+      $icon = HarbormasterBuild::getBuildStatusIcon($status);
+      $color = HarbormasterBuild::getBuildStatusColor($status);
+
+      $item->setIcon($icon, $color, $status_name);
 
 
       $status_view->addItem($item);

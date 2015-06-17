@@ -8,13 +8,18 @@ final class ReleephOriginalCommitFieldSpecification
   }
 
   public function getName() {
-    return 'Commit';
+    return pht('Commit');
   }
 
-  public function renderValueForHeaderView() {
-    $rr = $this->getReleephRequest();
-    $handles = $rr->getHandles();
-    return $handles[$rr->getRequestCommitPHID()]->renderLink();
+  public function getRequiredHandlePHIDsForPropertyView() {
+    return array(
+      $this->getReleephRequest()->getRequestCommitPHID(),
+    );
+  }
+
+
+  public function renderPropertyViewValue(array $handles) {
+    return $this->renderHandleList($handles);
   }
 
 }

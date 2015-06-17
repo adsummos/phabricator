@@ -12,15 +12,16 @@ final class PhabricatorProjectMembersEditController
   public function processRequest() {
     $request = $this->getRequest();
     $user = $request->getUser();
+    $id = $request->getURIData('id');
 
     $project = id(new PhabricatorProjectQuery())
       ->setViewer($user)
       ->withIDs(array($this->id))
       ->needMembers(true)
+      ->needImages(true)
       ->requireCapabilities(
         array(
           PhabricatorPolicyCapability::CAN_VIEW,
-          PhabricatorPolicyCapability::CAN_EDIT,
         ))
       ->executeOne();
     if (!$project) {
@@ -42,7 +43,7 @@ final class PhabricatorProjectMembersEditController
         $member_spec['+'] = array_fuse($add_members);
       }
 
-      $type_member = PhabricatorEdgeConfig::TYPE_PROJ_MEMBER;
+      $type_member = PhabricatorProjectProjectHasMemberEdgeType::EDGECONST;
 
       $xactions = array();
 
@@ -73,89 +74,89 @@ final class PhabricatorProjectMembersEditController
       );
     }
 
-    $header_name = pht('Edit Members');
-    $title = pht('Edit Members');
+    $can_edit = PhabricatorPolicyFilter::hasCapability(
+      $user,
+      $project,
+      PhabricatorPolicyCapability::CAN_EDIT);
 
-    $list = $this->renderMemberList($handles);
+    $form_box = null;
+    $title = pht('Add Members');
+    if ($can_edit) {
+      $header_name = pht('Edit Members');
+      $view_uri = $this->getApplicationURI('profile/'.$project->getID().'/');
 
-    $form = new AphrontFormView();
-    $form
-      ->setUser($user)
-      ->appendChild(
-        id(new AphrontFormTokenizerControl())
-          ->setName('phids')
-          ->setLabel(pht('Add Members'))
-          ->setDatasource('/typeahead/common/accounts/'))
-      ->appendChild(
-        id(new AphrontFormSubmitControl())
-          ->addCancelButton('/project/view/'.$project->getID().'/')
-          ->setValue(pht('Add Members')));
-    $faux_form = id(new AphrontFormView())
-      ->setUser($user)
-      ->appendChild(
-        id(new AphrontFormInsetView())
-          ->appendChild($list));
+      $form = new AphrontFormView();
+      $form
+        ->setUser($user)
+        ->appendControl(
+          id(new AphrontFormTokenizerControl())
+            ->setName('phids')
+            ->setLabel(pht('Add Members'))
+            ->setDatasource(new PhabricatorPeopleDatasource()))
+        ->appendChild(
+          id(new AphrontFormSubmitControl())
+            ->addCancelButton($view_uri)
+            ->setValue(pht('Add Members')));
+      $form_box = id(new PHUIObjectBoxView())
+        ->setHeaderText($title)
+        ->setForm($form);
+    }
 
-    $box = id(new PHUIObjectBoxView())
-      ->setHeaderText(pht('Current Members (%d)', count($handles)))
-      ->setForm($faux_form);
+    $member_list = $this->renderMemberList($project, $handles);
 
-    $form_box = id(new PHUIObjectBoxView())
-      ->setHeaderText($title)
-      ->setForm($form);
-
-    $crumbs = $this->buildApplicationCrumbs($this->buildSideNavView())
-      ->addTextCrumb(
-        $project->getName(),
-        '/project/view/'.$project->getID().'/')
-      ->addTextCrumb(pht('Edit Members'), $this->getApplicationURI());
+    $nav = $this->buildIconNavView($project);
+    $nav->selectFilter("members/{$id}/");
+    $nav->appendChild($form_box);
+    $nav->appendChild($member_list);
 
     return $this->buildApplicationPage(
-      array(
-        $crumbs,
-        $form_box,
-        $box,
-      ),
+      $nav,
       array(
         'title' => $title,
-        'device' => true,
       ));
   }
 
-  private function renderMemberList(array $handles) {
+  private function renderMemberList(
+    PhabricatorProject $project,
+    array $handles) {
+
     $request = $this->getRequest();
-    $user = $request->getUser();
-    $list = id(new PhabricatorObjectListView())
-      ->setHandles($handles);
+    $viewer = $request->getUser();
+
+    $can_edit = PhabricatorPolicyFilter::hasCapability(
+      $viewer,
+      $project,
+      PhabricatorPolicyCapability::CAN_EDIT);
+
+    $list = id(new PHUIObjectItemListView())
+      ->setNoDataString(pht('This project does not have any members.'))
+      ->setStackable(true);
 
     foreach ($handles as $handle) {
-      $hidden_input = phutil_tag(
-        'input',
-        array(
-          'type' => 'hidden',
-          'name' => 'remove',
-          'value' => $handle->getPHID(),
-        ),
-        '');
+      $remove_uri = $this->getApplicationURI(
+        '/members/'.$project->getID().'/remove/?phid='.$handle->getPHID());
 
-      $button = javelin_tag(
-        'button',
-        array(
-          'class' => 'grey',
-        ),
-        pht('Remove'));
+      $item = id(new PHUIObjectItemView())
+        ->setHeader($handle->getFullName())
+        ->setHref($handle->getURI())
+        ->setImageURI($handle->getImageURI());
 
-      $list->addButton(
-        $handle,
-        phabricator_form(
-          $user,
-          array(
-            'method' => 'POST',
-            'action' => $request->getRequestURI(),
-          ),
-          array($hidden_input, $button)));
+      if ($can_edit) {
+        $item->addAction(
+          id(new PHUIListItemView())
+            ->setIcon('fa-times')
+            ->setName(pht('Remove'))
+            ->setHref($remove_uri)
+            ->setWorkflow(true));
+      }
+
+      $list->addItem($item);
     }
 
-    return $list;
+    $box = id(new PHUIObjectBoxView())
+      ->setHeaderText(pht('Members'))
+      ->appendChild($list);
+
+    return $box;
   }
 }

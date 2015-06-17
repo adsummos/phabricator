@@ -1,7 +1,16 @@
 <?php
 
 final class PhabricatorObjectHandle
+  extends Phobject
   implements PhabricatorPolicyInterface {
+
+  const AVAILABILITY_FULL = 'full';
+  const AVAILABILITY_NONE = 'none';
+  const AVAILABILITY_PARTIAL = 'partial';
+  const AVAILABILITY_DISABLED = 'disabled';
+
+  const STATUS_OPEN = 'open';
+  const STATUS_CLOSED = 'closed';
 
   private $uri;
   private $phid;
@@ -10,12 +19,69 @@ final class PhabricatorObjectHandle
   private $fullName;
   private $title;
   private $imageURI;
+  private $icon;
+  private $tagColor;
   private $timestamp;
-  private $status = PhabricatorObjectHandleStatus::STATUS_OPEN;
+  private $status = self::STATUS_OPEN;
+  private $availability = self::AVAILABILITY_FULL;
   private $complete;
-  private $disabled;
   private $objectName;
   private $policyFiltered;
+
+  public function setIcon($icon) {
+    $this->icon = $icon;
+    return $this;
+  }
+
+  public function getIcon() {
+    if ($this->getPolicyFiltered()) {
+      return 'fa-lock';
+    }
+
+    if ($this->icon) {
+      return $this->icon;
+    }
+    return $this->getTypeIcon();
+  }
+
+  public function setTagColor($color) {
+    static $colors;
+    if (!$colors) {
+      $colors = array_fuse(array_keys(PHUITagView::getShadeMap()));
+    }
+
+    if (isset($colors[$color])) {
+      $this->tagColor = $color;
+    }
+
+    return $this;
+  }
+
+  public function getTagColor() {
+    if ($this->getPolicyFiltered()) {
+      return 'disabled';
+    }
+
+    if ($this->tagColor) {
+      return $this->tagColor;
+    }
+
+    return 'blue';
+  }
+
+  public function getIconColor() {
+    if ($this->tagColor) {
+      return $this->tagColor;
+    }
+    return null;
+  }
+
+  public function getTypeIcon() {
+    if ($this->getPHIDType()) {
+      return $this->getPHIDType()->getTypeIcon();
+    }
+    return null;
+  }
 
   public function setPolicyFiltered($policy_filered) {
     $this->policyFiltered = $policy_filered;
@@ -70,6 +136,19 @@ final class PhabricatorObjectHandle
       }
     }
     return $this->name;
+  }
+
+  public function setAvailability($availability) {
+    $this->availability = $availability;
+    return $this;
+  }
+
+  public function getAvailability() {
+    return $this->availability;
+  }
+
+  public function isDisabled() {
+    return ($this->getAvailability() == self::AVAILABILITY_DISABLED);
   }
 
   public function setStatus($status) {
@@ -168,33 +247,6 @@ final class PhabricatorObjectHandle
   }
 
 
-  /**
-   * Set whether or not the underlying object is disabled. See
-   * @{method:isDisabled} for an explanation of what it means to be disabled.
-   *
-   * @param bool True if the handle represents a disabled object.
-   * @return this
-   */
-  public function setDisabled($disabled) {
-    $this->disabled = $disabled;
-    return $this;
-  }
-
-
-  /**
-   * Determine if the handle represents an object which has been disabled --
-   * for example, disabled users, archived projects, etc. These objects are
-   * complete and exist, but should be excluded from some system interactions
-   * (for instance, they usually should not appear in typeaheads, and should
-   * not have mail/notifications delivered to or about them).
-   *
-   * @return bool True if the handle represents a disabled object.
-   */
-  public function isDisabled() {
-    return $this->disabled;
-  }
-
-
   public function renderLink($name = null) {
     if ($name === null) {
       $name = $this->getLinkName();
@@ -203,17 +255,15 @@ final class PhabricatorObjectHandle
     $classes[] = 'phui-handle';
     $title = $this->title;
 
-    if ($this->status != PhabricatorObjectHandleStatus::STATUS_OPEN) {
+    if ($this->status != self::STATUS_OPEN) {
       $classes[] = 'handle-status-'.$this->status;
-      $title = $title ? $title : $this->status;
     }
 
-    if ($this->disabled) {
-      $classes[] = 'handle-disabled';
-      $title = pht('Disabled'); // Overwrite status.
+    if ($this->availability != self::AVAILABILITY_FULL) {
+      $classes[] = 'handle-availability-'.$this->availability;
     }
 
-    if ($this->getType() == PhabricatorPeoplePHIDTypeUser::TYPECONST) {
+    if ($this->getType() == PhabricatorPeopleUserPHIDType::TYPECONST) {
       $classes[] = 'phui-link-person';
     }
 
@@ -222,8 +272,7 @@ final class PhabricatorObjectHandle
     $icon = null;
     if ($this->getPolicyFiltered()) {
       $icon = id(new PHUIIconView())
-        ->setSpriteSheet(PHUIIconView::SPRITE_ICONS)
-        ->setSpriteIcon('lock-grey');
+        ->setIconFont('fa-lock lightgreytext');
     }
 
     return phutil_tag(
@@ -236,9 +285,18 @@ final class PhabricatorObjectHandle
       array($icon, $name));
   }
 
+  public function renderTag() {
+    return id(new PHUITagView())
+      ->setType(PHUITagView::TYPE_OBJECT)
+      ->setShade($this->getTagColor())
+      ->setIcon($this->getIcon())
+      ->setHref($this->getURI())
+      ->setName($this->getLinkName());
+  }
+
   public function getLinkName() {
     switch ($this->getType()) {
-      case PhabricatorPeoplePHIDTypeUser::TYPECONST:
+      case PhabricatorPeopleUserPHIDType::TYPECONST:
         $name = $this->getName();
         break;
       default:

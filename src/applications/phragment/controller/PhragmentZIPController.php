@@ -12,8 +12,8 @@ final class PhragmentZIPController extends PhragmentController {
   }
 
   public function willProcessRequest(array $data) {
-    $this->dblob = idx($data, "dblob", "");
-    $this->snapshot = idx($data, "snapshot", null);
+    $this->dblob = idx($data, 'dblob', '');
+    $this->snapshot = idx($data, 'snapshot', null);
   }
 
   public function processRequest() {
@@ -68,7 +68,7 @@ final class PhragmentZIPController extends PhragmentController {
     }
 
     if (!$zip->open((string)$temp, ZipArchive::CREATE)) {
-      throw new Exception("Unable to create ZIP archive!");
+      throw new Exception(pht('Unable to create ZIP archive!'));
     }
 
     $mappings = $this->getFragmentMappings($fragment, $fragment->getPath());
@@ -85,7 +85,10 @@ final class PhragmentZIPController extends PhragmentController {
     $files = mpull($files, null, 'getPHID');
     foreach ($mappings as $path => $file_phid) {
       if (!isset($files[$file_phid])) {
+        // The path is most likely pointing to a deleted fragment, which
+        // hence no longer has a file associated with it.
         unset($mappings[$path]);
+        continue;
       }
       $mappings[$path] = $files[$file_phid];
     }
@@ -111,7 +114,7 @@ final class PhragmentZIPController extends PhragmentController {
       ));
 
     $unguarded = AphrontWriteGuard::beginScopedUnguardedWrites();
-      $file->attachToObject($viewer, $fragment->getPHID());
+      $file->attachToObject($fragment->getPHID());
     unset($unguarded);
 
     $return = $fragment->getURI();
@@ -120,6 +123,7 @@ final class PhragmentZIPController extends PhragmentController {
     }
 
     return id(new AphrontRedirectResponse())
+      ->setIsExternal(true)
       ->setURI($file->getDownloadURI($return));
   }
 

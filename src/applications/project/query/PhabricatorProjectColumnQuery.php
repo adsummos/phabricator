@@ -6,6 +6,7 @@ final class PhabricatorProjectColumnQuery
   private $ids;
   private $phids;
   private $projectPHIDs;
+  private $statuses;
 
   public function withIDs(array $ids) {
     $this->ids = $ids;
@@ -19,6 +20,11 @@ final class PhabricatorProjectColumnQuery
 
   public function withProjectPHIDs(array $project_phids) {
     $this->projectPHIDs = $project_phids;
+    return $this;
+  }
+
+  public function withStatuses(array $status) {
+    $this->statuses = $status;
     return $this;
   }
 
@@ -63,7 +69,7 @@ final class PhabricatorProjectColumnQuery
     return $page;
   }
 
-  private function buildWhereClause($conn_r) {
+  protected function buildWhereClause(AphrontDatabaseConnection $conn_r) {
     $where = array();
 
     if ($this->ids) {
@@ -87,13 +93,20 @@ final class PhabricatorProjectColumnQuery
         $this->projectPHIDs);
     }
 
+    if ($this->statuses !== null) {
+      $where[] = qsprintf(
+        $conn_r,
+        'status IN (%Ld)',
+        $this->statuses);
+    }
+
     $where[] = $this->buildPagingClause($conn_r);
 
     return $this->formatWhereClause($where);
   }
 
   public function getQueryApplicationClass() {
-    return 'PhabricatorApplicationProject';
+    return 'PhabricatorProjectApplication';
   }
 
 }

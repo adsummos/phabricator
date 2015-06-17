@@ -1,10 +1,12 @@
 <?php
 
-final class PhabricatorFeedBuilder {
+final class PhabricatorFeedBuilder extends Phobject {
 
+  private $user;
   private $stories;
   private $framed;
   private $hovercards = false;
+  private $noDataString;
 
   public function __construct(array $stories) {
     assert_instances_of($stories, 'PhabricatorFeedStory');
@@ -26,9 +28,14 @@ final class PhabricatorFeedBuilder {
     return $this;
   }
 
+  public function setNoDataString($string) {
+    $this->noDataString = $string;
+    return $this;
+  }
+
   public function buildView() {
     if (!$this->user) {
-      throw new Exception('Call setUser() before buildView()!');
+      throw new PhutilInvalidStateException('setUser');
     }
 
     $user = $this->user;
@@ -51,17 +58,44 @@ final class PhabricatorFeedBuilder {
             phutil_tag_div('phabricator-feed-story-date-separator'));
         }
         $last_date = $date;
-        $header = new PhabricatorActionHeaderView();
+        $header = new PHUIActionHeaderView();
         $header->setHeaderTitle($date);
 
         $null_view->appendChild($header);
       }
 
-      $view = $story->renderView();
-      $view->setUser($user);
+      try {
+        $view = $story->renderView();
+        $view->setUser($user);
+        $view = $view->render();
+      } catch (Exception $ex) {
+        // If rendering failed for any reason, don't fail the entire feed,
+        // just this one story.
+        $view = id(new PHUIFeedStoryView())
+          ->setUser($user)
+          ->setChronologicalKey($story->getChronologicalKey())
+          ->setEpoch($story->getEpoch())
+          ->setTitle(
+            pht('Feed Story Failed to Render (%s)', get_class($story)))
+          ->appendChild(pht('%s: %s', get_class($ex), $ex->getMessage()));
+      }
 
       $null_view->appendChild($view);
     }
+
+    if (empty($stories)) {
+      $nodatastring = pht('No Stories.');
+      if ($this->noDataString) {
+        $nodatastring = $this->noDataString;
+      }
+
+      $view = id(new PHUIInfoView())
+        ->setSeverity(PHUIInfoView::SEVERITY_NODATA)
+        ->appendChild($nodatastring);
+      $null_view->appendChild($view);
+    }
+
+
 
     return id(new AphrontNullView())
       ->appendChild($null_view->render());

@@ -28,10 +28,10 @@ final class AphrontMySQLDatabaseConnectionTestCase
       $caught = null;
       try {
         queryfx($conn, 'SELECT 1');
-      } catch (AphrontQueryConnectionLostException $ex) {
+      } catch (AphrontConnectionLostQueryException $ex) {
         $caught = $ex;
       }
-      $this->assertEqual(true, $caught instanceof Exception);
+      $this->assertTrue($caught instanceof Exception);
   }
 
 }

@@ -8,17 +8,46 @@
  * NOTE: This class MUST NOT have any dependencies. It runs before libraries
  * load.
  *
+ * Rate Limiting
+ * =============
+ *
+ * Phabricator limits the rate at which clients can request pages, and issues
+ * HTTP 429 "Too Many Requests" responses if clients request too many pages too
+ * quickly. Although this is not a complete defense against high-volume attacks,
+ * it can  protect an install against aggressive crawlers, security scanners,
+ * and some types of malicious activity.
+ *
+ * To perform rate limiting, each page increments a score counter for the
+ * requesting user's IP. The page can give the IP more points for an expensive
+ * request, or fewer for an authetnicated request.
+ *
+ * Score counters are kept in buckets, and writes move to a new bucket every
+ * minute. After a few minutes (defined by @{method:getRateLimitBucketCount}),
+ * the oldest bucket is discarded. This provides a simple mechanism for keeping
+ * track of scores without needing to store, access, or read very much data.
+ *
+ * Users are allowed to accumulate up to 1000 points per minute, averaged across
+ * all of the tracked buckets.
+ *
  * @task info         Accessing Request Information
  * @task hook         Startup Hooks
  * @task apocalypse   In Case Of Apocalypse
  * @task validation   Validation
+ * @task ratelimit    Rate Limiting
  */
 final class PhabricatorStartup {
 
   private static $startTime;
-  private static $globals = array();
+  private static $debugTimeLimit;
+  private static $accessLog;
   private static $capturingOutput;
   private static $rawInput;
+  private static $oldMemoryLimit;
+
+  // TODO: For now, disable rate limiting entirely by default. We need to
+  // iterate on it a bit for Conduit, some of the specific score levels, and
+  // to deal with NAT'd offices.
+  private static $maximumRate = 0;
 
 
 /* -(  Accessing Request Information  )-------------------------------------- */
@@ -43,25 +72,10 @@ final class PhabricatorStartup {
   /**
    * @task info
    */
-  public static function setGlobal($key, $value) {
-    self::validateGlobal($key);
-
-    self::$globals[$key] = $value;
+  public static function setAccessLog($access_log) {
+    self::$accessLog = $access_log;
   }
 
-
-  /**
-   * @task info
-   */
-  public static function getGlobal($key, $default = null) {
-    self::validateGlobal($key);
-
-    if (!array_key_exists($key, self::$globals)) {
-      return $default;
-    }
-
-    return self::$globals[$key];
-  }
 
   /**
    * @task info
@@ -79,7 +93,7 @@ final class PhabricatorStartup {
    */
   public static function didStartup() {
     self::$startTime = microtime(true);
-    self::$globals = array();
+    self::$accessLog = null;
 
     static $registered;
     if (!$registered) {
@@ -92,6 +106,14 @@ final class PhabricatorStartup {
 
     self::setupPHP();
     self::verifyPHP();
+
+    // If we've made it this far, the environment isn't completely broken so
+    // we can switch over to relying on our own exception recovery mechanisms.
+    ini_set('display_errors', 0);
+
+    if (isset($_SERVER['REMOTE_ADDR'])) {
+      self::rateLimitRequest($_SERVER['REMOTE_ADDR']);
+    }
 
     self::normalizeInput();
 
@@ -178,7 +200,7 @@ final class PhabricatorStartup {
 
   public static function beginOutputCapture() {
     if (self::$capturingOutput) {
-      self::didFatal("Already capturing output!");
+      self::didFatal('Already capturing output!');
     }
     self::$capturingOutput = true;
     ob_start();
@@ -191,6 +213,70 @@ final class PhabricatorStartup {
     }
     self::$capturingOutput = false;
     return ob_get_clean();
+  }
+
+
+/* -(  Debug Time Limit  )--------------------------------------------------- */
+
+
+  /**
+   * Set a time limit (in seconds) for the current script. After time expires,
+   * the script fatals.
+   *
+   * This works like `max_execution_time`, but prints out a useful stack trace
+   * when the time limit expires. This is primarily intended to make it easier
+   * to debug pages which hang by allowing extraction of a stack trace: set a
+   * short debug limit, then use the trace to figure out what's happening.
+   *
+   * The limit is implemented with a tick function, so enabling it implies
+   * some accounting overhead.
+   *
+   * @param int Time limit in seconds.
+   * @return void
+   */
+  public static function setDebugTimeLimit($limit) {
+    self::$debugTimeLimit = $limit;
+
+    static $initialized;
+    if (!$initialized) {
+      declare(ticks=1);
+      register_tick_function(array(__CLASS__, 'onDebugTick'));
+    }
+  }
+
+
+  /**
+   * Callback tick function used by @{method:setDebugTimeLimit}.
+   *
+   * Fatals with a useful stack trace after the time limit expires.
+   *
+   * @return void
+   */
+  public static function onDebugTick() {
+    $limit = self::$debugTimeLimit;
+    if (!$limit) {
+      return;
+    }
+
+    $elapsed = (microtime(true) - self::getStartTime());
+    if ($elapsed > $limit) {
+      $frames = array();
+      foreach (debug_backtrace() as $frame) {
+        $file = isset($frame['file']) ? $frame['file'] : '-';
+        $file = basename($file);
+
+        $line = isset($frame['line']) ? $frame['line'] : '-';
+        $class = isset($frame['class']) ? $frame['class'].'->' : null;
+        $func = isset($frame['function']) ? $frame['function'].'()' : '?';
+
+        $frames[] = "{$file}:{$line} {$class}{$func}";
+      }
+
+      self::didFatal(
+        "Request aborted by debug time limit after {$limit} seconds.\n\n".
+        "STACK TRACE\n".
+        implode("\n", $frames));
+    }
   }
 
 
@@ -247,8 +333,7 @@ final class PhabricatorStartup {
     }
 
     self::endOutputCapture();
-    $access_log = self::getGlobal('log.access');
-
+    $access_log = self::$accessLog;
     if ($access_log) {
       // We may end up here before the access log is initialized, e.g. from
       // verifyPHP().
@@ -279,6 +364,7 @@ final class PhabricatorStartup {
    */
   private static function setupPHP() {
     error_reporting(E_ALL | E_STRICT);
+    self::$oldMemoryLimit = ini_get('memory_limit');
     ini_set('memory_limit', -1);
 
     // If we have libxml, disable the incredibly dangerous entity loader.
@@ -287,23 +373,35 @@ final class PhabricatorStartup {
     }
   }
 
+
+  /**
+   * @task validation
+   */
+  public static function getOldMemoryLimit() {
+    return self::$oldMemoryLimit;
+  }
+
   /**
    * @task validation
    */
   private static function normalizeInput() {
     // Replace superglobals with unfiltered versions, disrespect php.ini (we
-    // filter ourselves)
-    $filter = array(INPUT_GET, INPUT_POST,
-      INPUT_SERVER, INPUT_ENV, INPUT_COOKIE);
+    // filter ourselves).
+
+    // NOTE: We don't filter INPUT_SERVER because we don't want to overwrite
+    // changes made in "preamble.php".
+    $filter = array(
+      INPUT_GET,
+      INPUT_POST,
+      INPUT_ENV,
+      INPUT_COOKIE,
+    );
     foreach ($filter as $type) {
       $filtered = filter_input_array($type, FILTER_UNSAFE_RAW);
       if (!is_array($filtered)) {
         continue;
       }
       switch ($type) {
-        case INPUT_SERVER:
-          $_SERVER = array_merge($_SERVER, $filtered);
-          break;
         case INPUT_GET:
           $_GET = array_merge($_GET, $filtered);
           break;
@@ -314,7 +412,8 @@ final class PhabricatorStartup {
           $_POST = array_merge($_POST, $filtered);
           break;
         case INPUT_ENV;
-          $_ENV = array_merge($_ENV, $filtered);
+          $env = array_merge($_ENV, $filtered);
+          $_ENV = self::filterEnvSuperglobal($env);
           break;
       }
     }
@@ -346,6 +445,30 @@ final class PhabricatorStartup {
       }
     }
   }
+
+
+  /**
+   * Adjust `$_ENV` before execution.
+   *
+   * Adjustments here primarily impact the environment as seen by subprocesses.
+   * The environment is forwarded explicitly by @{class:ExecFuture}.
+   *
+   * @param map<string, wild> Input `$_ENV`.
+   * @return map<string, string> Suitable `$_ENV`.
+   * @task validation
+   */
+  private static function filterEnvSuperglobal(array $env) {
+
+    // In some configurations, we may get "argc" and "argv" set in $_ENV.
+    // These are not real environmental variables, and "argv" may have an array
+    // value which can not be forwarded to subprocesses. Remove these from the
+    // environment if they are present.
+    unset($env['argc']);
+    unset($env['argv']);
+
+    return $env;
+  }
+
 
   /**
    * @task validation
@@ -411,21 +534,6 @@ final class PhabricatorStartup {
         "Request parameter '__path__' is set, but empty. Your rewrite rules ".
         "are not configured correctly. The '__path__' should always ".
         "begin with a '/'.");
-    }
-  }
-
-
-  /**
-   * @task validation
-   */
-  private static function validateGlobal($key) {
-    static $globals = array(
-      'log.access' => true,
-      'csrf.salt'  => true,
-    );
-
-    if (empty($globals[$key])) {
-      throw new Exception("Access to unknown startup global '{$key}'!");
     }
   }
 
@@ -511,7 +619,7 @@ final class PhabricatorStartup {
     // populated into $_POST, but it wasn't.
 
     $config = ini_get('post_max_size');
-    PhabricatorStartup::didFatal(
+    self::didFatal(
       "As received by the server, this request had a nonzero content length ".
       "but no POST data.\n\n".
       "Normally, this indicates that it exceeds the 'post_max_size' setting ".
@@ -519,6 +627,231 @@ final class PhabricatorStartup {
       "setting or reduce the size of the request.\n\n".
       "Request size according to 'Content-Length' was '{$length}', ".
       "'post_max_size' is set to '{$config}'.");
+  }
+
+
+/* -(  Rate Limiting  )------------------------------------------------------ */
+
+
+  /**
+   * Adjust the permissible rate limit score.
+   *
+   * By default, the limit is `1000`. You can use this method to set it to
+   * a larger or smaller value. If you set it to `2000`, users may make twice
+   * as many requests before rate limiting.
+   *
+   * @param int Maximum score before rate limiting.
+   * @return void
+   * @task ratelimit
+   */
+  public static function setMaximumRate($rate) {
+    self::$maximumRate = $rate;
+  }
+
+
+  /**
+   * Check if the user (identified by `$user_identity`) has issued too many
+   * requests recently. If they have, end the request with a 429 error code.
+   *
+   * The key just needs to identify the user. Phabricator uses both user PHIDs
+   * and user IPs as keys, tracking logged-in and logged-out users separately
+   * and enforcing different limits.
+   *
+   * @param   string  Some key which identifies the user making the request.
+   * @return  void    If the user has exceeded the rate limit, this method
+   *                  does not return.
+   * @task ratelimit
+   */
+  public static function rateLimitRequest($user_identity) {
+    if (!self::canRateLimit()) {
+      return;
+    }
+
+    $score = self::getRateLimitScore($user_identity);
+    if ($score > (self::$maximumRate * self::getRateLimitBucketCount())) {
+      // Give the user some bonus points for getting rate limited. This keeps
+      // bad actors who keep slamming the 429 page locked out completely,
+      // instead of letting them get a burst of requests through every minute
+      // after a bucket expires.
+      self::addRateLimitScore($user_identity, 50);
+      self::didRateLimit($user_identity);
+    }
+  }
+
+
+  /**
+   * Add points to the rate limit score for some user.
+   *
+   * If users have earned more than 1000 points per minute across all the
+   * buckets they'll be locked out of the application, so awarding 1 point per
+   * request roughly corresponds to allowing 1000 requests per second, while
+   * awarding 50 points roughly corresponds to allowing 20 requests per second.
+   *
+   * @param string  Some key which identifies the user making the request.
+   * @param float   The cost for this request; more points pushes them toward
+   *                the limit faster.
+   * @return void
+   * @task ratelimit
+   */
+  public static function addRateLimitScore($user_identity, $score) {
+    if (!self::canRateLimit()) {
+      return;
+    }
+
+    $current = self::getRateLimitBucket();
+
+    // There's a bit of a race here, if a second process reads the bucket before
+    // this one writes it, but it's fine if we occasionally fail to record a
+    // user's score. If they're making requests fast enough to hit rate
+    // limiting, we'll get them soon.
+
+    $bucket_key = self::getRateLimitBucketKey($current);
+    $bucket = apc_fetch($bucket_key);
+    if (!is_array($bucket)) {
+      $bucket = array();
+    }
+
+    if (empty($bucket[$user_identity])) {
+      $bucket[$user_identity] = 0;
+    }
+
+    $bucket[$user_identity] += $score;
+    apc_store($bucket_key, $bucket);
+  }
+
+
+  /**
+   * Determine if rate limiting is available.
+   *
+   * Rate limiting depends on APC, and isn't available unless the APC user
+   * cache is available.
+   *
+   * @return bool True if rate limiting is available.
+   * @task ratelimit
+   */
+  private static function canRateLimit() {
+    if (!self::$maximumRate) {
+      return false;
+    }
+
+    if (!function_exists('apc_fetch')) {
+      return false;
+    }
+
+    return true;
+  }
+
+
+  /**
+   * Get the current bucket for storing rate limit scores.
+   *
+   * @return int The current bucket.
+   * @task ratelimit
+   */
+  private static function getRateLimitBucket() {
+    return (int)(time() / 60);
+  }
+
+
+  /**
+   * Get the total number of rate limit buckets to retain.
+   *
+   * @return int Total number of rate limit buckets to retain.
+   * @task ratelimit
+   */
+  private static function getRateLimitBucketCount() {
+    return 5;
+  }
+
+
+  /**
+   * Get the APC key for a given bucket.
+   *
+   * @param int Bucket to get the key for.
+   * @return string APC key for the bucket.
+   * @task ratelimit
+   */
+  private static function getRateLimitBucketKey($bucket) {
+    return 'rate:bucket:'.$bucket;
+  }
+
+
+  /**
+   * Get the APC key for the smallest stored bucket.
+   *
+   * @return string APC key for the smallest stored bucket.
+   * @task ratelimit
+   */
+  private static function getRateLimitMinKey() {
+    return 'rate:min';
+  }
+
+
+  /**
+   * Get the current rate limit score for a given user.
+   *
+   * @param string Unique key identifying the user.
+   * @return float The user's current score.
+   * @task ratelimit
+   */
+  private static function getRateLimitScore($user_identity) {
+    $min_key = self::getRateLimitMinKey();
+
+    // Identify the oldest bucket stored in APC.
+    $cur = self::getRateLimitBucket();
+    $min = apc_fetch($min_key);
+
+    // If we don't have any buckets stored yet, store the current bucket as
+    // the oldest bucket.
+    if (!$min) {
+      apc_store($min_key, $cur);
+      $min = $cur;
+    }
+
+    // Destroy any buckets that are older than the minimum bucket we're keeping
+    // track of. Under load this normally shouldn't do anything, but will clean
+    // up an old bucket once per minute.
+    $count = self::getRateLimitBucketCount();
+    for ($cursor = $min; $cursor < ($cur - $count); $cursor++) {
+      apc_delete(self::getRateLimitBucketKey($cursor));
+      apc_store($min_key, $cursor + 1);
+    }
+
+    // Now, sum up the user's scores in all of the active buckets.
+    $score = 0;
+    for (; $cursor <= $cur; $cursor++) {
+      $bucket = apc_fetch(self::getRateLimitBucketKey($cursor));
+      if (isset($bucket[$user_identity])) {
+        $score += $bucket[$user_identity];
+      }
+    }
+
+    return $score;
+  }
+
+
+  /**
+   * Emit an HTTP 429 "Too Many Requests" response (indicating that the user
+   * has exceeded application rate limits) and exit.
+   *
+   * @return exit This method **does not return**.
+   * @task ratelimit
+   */
+  private static function didRateLimit() {
+    $message =
+      "TOO MANY REQUESTS\n".
+      "You are issuing too many requests too quickly.\n".
+      "To adjust limits, see \"Configuring a Preamble Script\" in the ".
+      "documentation.";
+
+    header(
+      'Content-Type: text/plain; charset=utf-8',
+      $replace = true,
+      $http_error = 429);
+
+    echo $message;
+
+    exit(1);
   }
 
 }

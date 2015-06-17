@@ -23,7 +23,7 @@ final class PhabricatorRepositoryTestCase
       $this->assertEqual(
         $expect,
         $repository->getRemoteProtocol(),
-        "Protocol for '{$uri}'.");
+        pht("Protocol for '%s'.", $uri));
     }
   }
 
@@ -33,10 +33,9 @@ final class PhabricatorRepositoryTestCase
     $repo = new PhabricatorRepository();
     $repo->setVersionControlSystem($git);
 
-    $this->assertEqual(
-      true,
+    $this->assertTrue(
       $repo->shouldTrackBranch('imaginary'),
-      'Track all branches by default.');
+      pht('Track all branches by default.'));
 
     $repo->setDetail(
       'branch-filter',
@@ -44,15 +43,13 @@ final class PhabricatorRepositoryTestCase
         'master' => true,
       ));
 
-    $this->assertEqual(
-      true,
+    $this->assertTrue(
       $repo->shouldTrackBranch('master'),
-      'Track listed branches.');
+      pht('Track listed branches.'));
 
-    $this->assertEqual(
-      false,
+    $this->assertFalse(
       $repo->shouldTrackBranch('imaginary'),
-      'Do not track unlisted branches.');
+      pht('Do not track unlisted branches.'));
   }
 
   public function testSubversionPathInfo() {
@@ -109,7 +106,7 @@ final class PhabricatorRepositoryTestCase
 
   public function testFilterMercurialDebugOutput() {
     $map = array(
-      "" => "",
+      '' => '',
 
       "quack\n" => "quack\n",
 
@@ -146,7 +143,7 @@ final class PhabricatorRepositoryTestCase
       "ignoring untrusted configuration option x.y = z\n".
       "duckignoring untrusted configuration option x.y = z\n".
       "quack" =>
-        "duckquack",
+        'duckquack',
     );
 
     foreach ($map as $input => $expect) {

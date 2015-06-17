@@ -1,7 +1,7 @@
 <?php
 
 final class PhabricatorCampfireProtocolAdapter
-  extends PhabricatorBotBaseStreamingProtocolAdapter {
+  extends PhabricatorStreamingProtocolAdapter {
 
   public function getServiceType() {
     return 'Campfire';
@@ -10,13 +10,13 @@ final class PhabricatorCampfireProtocolAdapter
   protected function buildStreamingUrl($channel) {
     $ssl = $this->getConfig('ssl');
 
-    $url = ($ssl) ? "https://" : "http://";
+    $url = ($ssl) ? 'https://' : 'http://';
     $url .= "streaming.campfirenow.com/room/{$channel}/live.json";
 
     return $url;
   }
 
-  protected function processMessage($m_obj) {
+  protected function processMessage(array $m_obj) {
       $command = null;
       switch ($m_obj['type']) {
         case 'TextMessage':
@@ -92,7 +92,9 @@ final class PhabricatorCampfireProtocolAdapter
       array(
         'message' => array(
           'type' => $type,
-          'body' => $message)));
+          'body' => $message,
+        ),
+      ));
   }
 
   public function __destruct() {

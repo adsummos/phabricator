@@ -2,8 +2,6 @@
 
 /**
  * Test storage engine. Does not actually store files. Used for unit tests.
- *
- * @group filestorage
  */
 final class PhabricatorTestStorageEngine
   extends PhabricatorFileStorageEngine {
@@ -13,6 +11,22 @@ final class PhabricatorTestStorageEngine
 
   public function getEngineIdentifier() {
     return 'unit-test';
+  }
+
+  public function getEnginePriority() {
+    return 1000;
+  }
+
+  public function isTestEngine() {
+    return true;
+  }
+
+  public function canWriteFiles() {
+    return true;
+  }
+
+  public function hasFilesizeLimit() {
+    return false;
   }
 
   public function writeFile($data, array $params) {
@@ -25,7 +39,7 @@ final class PhabricatorTestStorageEngine
     if (isset(self::$storage[$handle])) {
       return self::$storage[$handle];
     }
-    throw new Exception("No such file with handle '{$handle}'!");
+    throw new Exception(pht("No such file with handle '%s'!", $handle));
   }
 
   public function deleteFile($handle) {

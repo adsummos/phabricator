@@ -14,8 +14,18 @@
   margin: 16px auto;
 }
 
+.device-desktop .phui-document-fluid .phui-document-view {
+  max-width: none;
+  margin: 16px;
+}
+
 .device-desktop .phui-document-view.phui-offset-view {
   max-width: 800px;
+}
+
+/* Fix so that Phriction Document preview is the same width as the document */
+.device-desktop .phui-remarkup-preview .phui-document-view {
+  width: 800px;
 }
 
 .phui-document-sidenav {
@@ -34,7 +44,7 @@
 }
 
 .device-phone .phui-sidenav-view .phui-document-inner {
- margin: 0;
+  margin: 0;
 }
 
 .phui-sidenav-view .phui-document-inner {
@@ -76,13 +86,12 @@
 .phui-document-content
   .phui-header-shell.phui-header-no-backgound
   .phui-header-view {
- padding: 8px 0 4px;
- font-size: 14px;
+  padding: 8px 0 4px;
+  font-size: 15px;
 }
 
 .phui-document-content .phui-header-view {
-  padding: 16px;
-  color: {$bluetext};
+  color: {$darkbluetext};
   text-shadow: 0 1px 2px #fff;
 }
 
@@ -98,28 +107,16 @@
 }
 
 .phui-document-content {
-  min-height: 240px;
   background: #fff;
-
-  /* NOTE: This fixes margins, not floats, and can not be replaced with
-     the ".group" class. See T3150.
-  */
   overflow: hidden;
-}
-
-.device-desktop .phui-document-content .phabricator-action-list-view {
-  margin: 10px 10px 0 0;
-  background: {$lightgreybackground};
-}
-
-.device-phone .phui-document-content .phabricator-action-list-view {
-  margin: 0;
-  border-bottom: 1px solid #c0c5d1;
-  background: {$lightgreybackground};
 }
 
 .phui-document-content .phabricator-remarkup {
   padding: 16px;
+}
+
+.phui-document-view .phui-header-action-links .phui-mobile-menu {
+  display: block;
 }
 
 .device-phone .phui-document-content .phabricator-remarkup {
@@ -127,18 +124,7 @@
 }
 
 .device-desktop .phui-document-content .phabricator-action-list-view {
-  position: absolute;
-  top: 50px;
-  right: -172px;
-  float: none;
-  background: #fff;
-  border-radius: 0;
-  box-shadow: none;
-  border: none;
-  border-top: 1px solid {$thinblueborder};
-  border-bottom: 1px solid {$thinblueborder};
-  border-right: 1px solid {$thinblueborder};
-  width: 160px;
+  display: none;
 }
 
 .device-phone .phui-document-content .phabricator-remarkup-toc {
@@ -151,9 +137,36 @@
 }
 
 .device-desktop .phui-document-offset {
-  padding-right: 160px;
+  padding-right: 120px;
 }
 
 .phui-document-view .phui-property-list-view {
   border-bottom: 1px solid {$thinblueborder};
+}
+
+.phui-document-view .phui-info-severity-nodata {
+  background-color: {$lightgreybackground};
+}
+
+.phui-document-view .phabricator-remarkup.remarkup-has-toc {
+  position: relative;
+  margin-right: 192px;
+}
+
+.phui-document-view .remarkup-has-toc .phabricator-remarkup-toc {
+  position: absolute;
+  top: 0;
+  right: -186px;
+  bottom: 0;
+  border-left: 1px solid {$thinblueborder};
+  padding: 16px 12px;
+  margin: 0;
+}
+
+.device-phone .phui-document-view .phabricator-remarkup.remarkup-has-toc {
+  margin-right: 0;
+}
+
+.device-phone .phui-document-view .remarkup-has-toc .phabricator-remarkup-toc {
+  display: none;
 }

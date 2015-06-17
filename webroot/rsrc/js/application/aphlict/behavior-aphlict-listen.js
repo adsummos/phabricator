@@ -7,82 +7,141 @@
  *           javelin-uri
  *           javelin-dom
  *           javelin-json
+ *           javelin-router
+ *           javelin-util
+ *           javelin-leader
+ *           javelin-sound
  *           phabricator-notification
  */
 
 JX.behavior('aphlict-listen', function(config) {
+  var page_objects = config.pageObjects;
+  var reload_notification = null;
 
-  var showing_reload = false;
+  JX.Stratcom.listen('aphlict-server-message', null, function(e) {
+    var message = e.getData();
 
-  function onready() {
-    var client = new JX.Aphlict(config.id, config.server, config.port)
-      .setHandler(onaphlictmessage)
-      .start();
-  }
+    if (message.type != 'notification') {
+      return;
+    }
+
+    JX.Leader.callIfLeader(function() {
+      var request = new JX.Request(
+        '/notification/individual/',
+        onNotification);
+
+      var routable = request
+        .addData({key: message.key})
+        .getRoutable();
+
+      routable
+        .setType('notification')
+        .setPriority(250);
+
+      JX.Router.getInstance().queue(routable);
+    });
+  });
 
   // Respond to a notification from the Aphlict notification server. We send
   // a request to Phabricator to get notification details.
-  function onaphlictmessage(type, message) {
-    if (type == 'receive') {
-      var request = new JX.Request('/notification/individual/', onnotification)
-        .addData({key: message.key})
-        .send();
-    } else if (__DEV__) {
-      if (config.debug) {
-        var details = message ? JX.JSON.stringify(message) : '';
+  function onAphlictMessage(message) {
+    switch (message.type) {
+      case 'aphlict.server':
+        JX.Stratcom.invoke('aphlict-server-message', null, message.data);
+        break;
 
-        new JX.Notification()
-          .setContent('(Aphlict) [' + type + '] ' + details)
-          .alterClassName('jx-notification-debug', true)
-          .setDuration(0)
-          .show();
-      }
+      case 'notification.individual':
+        JX.Stratcom.invoke('aphlict-notification-message', null, message.data);
+        break;
     }
   }
 
-
   // Respond to a response from Phabricator about a specific notification.
-  function onnotification(response) {
+  function onNotification(response) {
     if (!response.pertinent) {
       return;
     }
 
+    JX.Leader.broadcast(null, {
+      type: 'notification.individual',
+      data: response
+    });
+  }
+
+  JX.Stratcom.listen('aphlict-notification-message', null, function(e) {
     JX.Stratcom.invoke('notification-panel-update', null, {});
+    var response = e.getData();
 
     // Show the notification itself.
     new JX.Notification()
       .setContent(JX.$H(response.content))
       .show();
 
-
     // If the notification affected an object on this page, show a
     // permanent reload notification if we aren't already.
-    if ((response.primaryObjectPHID in config.pageObjects) &&
-        !showing_reload) {
+    if ((response.primaryObjectPHID in page_objects) &&
+      reload_notification === null) {
+
       var reload = new JX.Notification()
         .setContent('Page updated, click to reload.')
         .alterClassName('jx-notification-alert', true)
         .setDuration(0);
-      reload.listen('activate', function(e) { JX.$U().go(); });
+      reload.listen(
+        'activate',
+        function() {
+          // double check we are still on the page where re-loading makes
+          // sense...!
+          if (response.primaryObjectPHID in page_objects) {
+            JX.$U().go();
+          }
+        });
       reload.show();
 
-      showing_reload = true;
+      reload_notification = {
+        dialog: reload,
+        phid: response.primaryObjectPHID
+      };
     }
-  }
+  });
+
+  var client = new JX.Aphlict(
+    config.websocketURI,
+    config.subscriptions);
+
+  client
+    .setHandler(onAphlictMessage)
+    .start();
+
+  JX.Stratcom.listen(
+    'quicksand-redraw',
+    null,
+    function (e) {
+      var old_data = e.getData().oldResponse;
+      var new_data = e.getData().newResponse;
+      client.clearSubscriptions(old_data.subscriptions);
+      client.setSubscriptions(new_data.subscriptions);
+
+      page_objects = new_data.pageObjects;
+      if (reload_notification) {
+        if (reload_notification.phid in page_objects) {
+          return;
+        }
+        reload_notification.dialog.hide();
+        reload_notification = null;
+      }
+    });
+
+  JX.Leader.listen('onReceiveBroadcast', function(message, is_leader) {
+    if (message.type !== 'sound') {
+      return;
+    }
+
+    if (!is_leader) {
+      return;
+    }
+
+    JX.Sound.play(message.data);
+  });
 
 
-  // Wait for the element to load, and don't do anything if it never loads.
-  // If we just go crazy and start making calls to it before it loads, its
-  // interfaces won't be registered yet.
-  JX.Stratcom.listen('aphlict-component-ready', null, onready);
-
-  // Add Flash object to page
-  JX.$(config.containerID).innerHTML =
-    '<object classid="clsid:d27cdb6e-ae6d-11cf-96b8-444553540000">' +
-      '<param name="movie" value="/rsrc/swf/aphlict.swf" />' +
-      '<param name="allowScriptAccess" value="always" />' +
-      '<param name="wmode" value="opaque" />' +
-      '<embed src="/rsrc/swf/aphlict.swf" wmode="opaque"' +
-        'width="0" height="0" id="' + config.id + '">' +
-    '</embed></object>'; //Evan sanctioned
 });

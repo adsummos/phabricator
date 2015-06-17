@@ -6,17 +6,14 @@ final class PhabricatorWorkingCopyPullTestCase
   public function testGitPullBasic() {
     $repo = $this->buildPulledRepository('GT');
 
-    $this->assertEqual(
-      true,
-      Filesystem::pathExists($repo->getLocalPath().'/HEAD'));
+    $this->assertTrue(Filesystem::pathExists($repo->getLocalPath().'/HEAD'));
   }
 
   public function testHgPullBasic() {
+    $this->requireBinaryForTest('hg');
     $repo = $this->buildPulledRepository('HT');
 
-    $this->assertEqual(
-      true,
-      Filesystem::pathExists($repo->getLocalPath().'/.hg'));
+    $this->assertTrue(Filesystem::pathExists($repo->getLocalPath().'/.hg'));
   }
 
   public function testSVNPullBasic() {
@@ -24,9 +21,7 @@ final class PhabricatorWorkingCopyPullTestCase
 
     // We don't pull local clones for SVN, so we don't expect there to be
     // a working copy.
-    $this->assertEqual(
-      false,
-      Filesystem::pathExists($repo->getLocalPath()));
+    $this->assertFalse(Filesystem::pathExists($repo->getLocalPath()));
   }
 
 }

@@ -1,66 +1,107 @@
 @title User Guide: Account Roles
 @group userguide
 
-Describes account roles like "Administrator", "Disabled" and "System Agent".
+Describes account roles like "Administrator", "Disabled", "Bot" and "Mailing
+List".
 
-= Overview =
+
+Overview
+========
 
 When you create a user account, you can set roles like "Administrator",
-"Disabled" or "System Agent". This document explains what these roles mean.
+"Disabled", "Bot" and "Mailing List". This document explains what these roles
+mean.
 
-= Administrators =
 
-**Administrators** are normal users with extra capabilities. They have access
-to some tools and workflows that normal users don't, which they can use to
-debug and configure Phabricator. For example, they have access to:
+Administrators
+==============
 
-  - **Account Management**: The primary function of administrators is adding,
-    disabling, and managing user accounts. Administrators can create and edit
-    accounts and view access logs.
-  - **Repositories**: Administrators can configure repositories. This isn't
-    normally available because it is specialized and complicated to configure.
+**Administrators** are normal users with a few extra capabilities. Their
+primary role is to keep things running smoothly, and they are not all-powerful.
+In Phabricator, administrators are more like //janitors//.
 
-Administrators have a few other minor capabilities in other tools. When you are
-in an administrative interface, the menu bar is red.
+Administrators can create, delete, enable, disable, and approve user accounts.
+Various applications have a few other capabilities which are reserved for
+administrators by default, but these can be changed to provide access to more
+or fewer users.
 
 Administrators are **not** in complete control of the system. Administrators
-**can not** login as other users or act on behalf of other users. Administrators
-**can not** bypass object privacy policies.
+**can not** login as other users or act on behalf of other users. They can not
+destroy data or make changes without leaving an audit trail. Administrators also
+can not bypass object privacy policies.
 
-NOTE: Administrators currently //can// act on behalf of other users via Conduit.
-This will be locked down at some point.
+Limiting the power of administrators means that administrators can't abuse
+their power (they have very little power to abuse), a malicious administrator
+can't do much damage, and an attacker who compromises an administrator account
+is limited in what they can accomplish.
 
-= System Agents =
 
-**System Agents** are accounts for bots and scripts which need to interface
-with the system but are not regular users. Generally, when you write scripts
-that use Conduit (like the IRC bot), you should create a System Agent account
-for them. System agents:
+Bot Accounts
+============
 
-  - **can not login** (they //can// access API methods via Conduit);
-  - **can not review diffs or own tasks**;
-  - **do not appear in CC tokenzers**.
+**Bot** ("Robot") accounts are accounts for bots and scripts which need to
+interface with the system, but are not regular users. Generally, when you write
+scripts that use the Conduit API, you should create a bot account for them.
 
-Currently, the **System Agent** role for an account can not be changed after the
-account is created. This prevents administrators form changing a normal user
-into a system agent, retrieving their Conduit certificate, and then changing
-them back (which would allow administrators to gain other users' credentials).
+The **Bot** role for an account can not be changed after the account is
+created. This prevents administrators form changing a normal user into a bot,
+retrieving their Conduit certificate, and then changing them back (which
+would allow administrators to gain other users' credentials).
 
-= Disabled Users =
+**Bot** accounts differ from normal accounts in that:
+
+  - they can not log in to the web UI;
+  - administrators can access them, edit settings, and retrieve credentials;
+  - they do not receive email;
+  - they appear with lower precedence in the UI when selecting users, with
+    a "Bot" note (because it usually does not make sense to, for example,
+    assign a task to a bot).
+
+
+Mailing Lists
+=============
+
+**Mailing List** accounts let you represent an existing external mailing list
+(like a Google Group or a Mailman list) as a user. You can subscribe this user
+to objects (like tasks) to send them mail.
+
+Because these accounts are also user accounts, they can be added to projects
+and affected by policies. The list won't receive mail about anything the
+underlying user account can't see.
+
+The **Mailing List** role for an account can not be changed after the account
+is created.
+
+Some options can be configured for mailing lists by browsing to the list user's
+profile and clicking {nav Edit Settings}. You can change the addresss for a
+list by editing "Email Addresses" here, choose the language and format for
+email the list receives, and customize which actions the list is notified about.
+
+**Mailing List** accounts differ from normal accounts in that they:
+
+  - can not log in;
+  - can not access the Conduit API;
+  - administrators can access them and edit settings; and
+  - they appear with lower precedence in the UI when selecting users, with
+    a "Mailing List" note.
+
+
+Disabled Users
+==============
 
 **Disabled Users** are accounts that are no longer active. Generally, when
 someone leaves a project (e.g., leaves your company, or their internship or
-contract ends) you should disable their account to terminate their access to the
-system. Disabled users:
+contract ends) you should disable their account to terminate their access to
+the system. Disabled users:
 
-  - **can not login**;
-  - **can not access Conduit**;
-  - **do not receive email**;
-  - **do not appear in owner/reviewer/CC tokenizers**.
+  - can not login;
+  - can not access the Conduit API;
+  - do not receive email; and
+  - appear with lower precedence in the UI when selecting users, with a
+    "Disabled" note (because it usually does not make sense to, for example,
+    assign a task to a disabled user).
 
-Users can only be disabled (not deleted) because there are a number of workflows
-that don't make sense if their account is completely deleted, like: finding old
-revisions or tasks that they were responsible for (so you can get someone else
-to take care of them); identifying them as the author of their changes; and
-restoring all their data if they rejoin the project (e.g., they are later
-re-hired, maybe as a full time employee after an internship).
+While users can also be deleted, it is strongly recommended that you disable
+them instead, particularly if they interacted with any objects in the system.
+If you delete a user entirely, you won't be able to find things they used to
+own or restore their data later if they rejoin the project.

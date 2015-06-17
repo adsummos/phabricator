@@ -1,8 +1,5 @@
 <?php
 
-/**
- * @group search
- */
 final class PhabricatorNamedQueryQuery
   extends PhabricatorCursorPagedPolicyAwareQuery {
 
@@ -46,7 +43,7 @@ final class PhabricatorNamedQueryQuery
     return $table->loadAllFromArray($data);
   }
 
-  private function buildWhereClause($conn_r) {
+  protected function buildWhereClause(AphrontDatabaseConnection $conn_r) {
     $where = array();
 
     if ($this->ids) {
@@ -82,9 +79,8 @@ final class PhabricatorNamedQueryQuery
     return $this->formatWhereClause($where);
   }
 
-
   public function getQueryApplicationClass() {
-    return 'PhabricatorApplicationSearch';
+    return 'PhabricatorSearchApplication';
   }
 
 }

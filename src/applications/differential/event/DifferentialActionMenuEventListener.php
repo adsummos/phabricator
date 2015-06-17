@@ -19,29 +19,11 @@ final class DifferentialActionMenuEventListener
     $object = $event->getValue('object');
 
     $actions = null;
-    if ($object instanceof PhabricatorUser) {
-      $actions = $this->renderUserItems($event);
-    } else if ($object instanceof ManiphestTask) {
+    if ($object instanceof ManiphestTask) {
       $actions = $this->renderTaskItems($event);
+      $this->addActionMenuItems($event, $actions);
     }
 
-    $this->addActionMenuItems($event, $actions);
-  }
-
-  private function renderUserItems(PhutilEvent $event) {
-    if (!$this->canUseApplication($event->getUser())) {
-      return null;
-    }
-
-    $person = $event->getValue('object');
-    $href = '/differential/?authorPHIDs[]='.$person->getPHID();
-
-    return id(new PhabricatorActionView())
-      ->setRenderAsForm(true)
-      ->setIcon('differential-dark')
-      ->setIconSheet(PHUIIconView::SPRITE_APPS)
-      ->setName(pht('View Revisions'))
-      ->setHref($href);
   }
 
   private function renderTaskItems(PhutilEvent $event) {
@@ -60,11 +42,9 @@ final class DifferentialActionMenuEventListener
     return id(new PhabricatorActionView())
       ->setName(pht('Edit Differential Revisions'))
       ->setHref("/search/attach/{$phid}/DREV/")
-      ->setWorkflow(true)
-      ->setIcon('attach')
+      ->setIcon('fa-cog')
       ->setDisabled(!$can_edit)
       ->setWorkflow(true);
   }
 
 }
-

@@ -3,18 +3,18 @@
 final class PHUIBoxExample extends PhabricatorUIExample {
 
   public function getName() {
-    return 'Box';
+    return pht('Box');
   }
 
   public function getDescription() {
-    return 'It\'s a fancy or non-fancy box. Put stuff in it.';
+    return pht("It's a fancy or non-fancy box. Put stuff in it.");
   }
 
   public function renderExample() {
 
     $content1 = 'Asmund and Signy';
     $content2 = 'The Cottager and his Cat';
-    $content3 = 'Geirlug The King\'s Daughter';
+    $content3 = "Geirlug The King's Daughter";
 
     $layout1 =
       array(
@@ -23,7 +23,8 @@ final class PHUIBoxExample extends PhabricatorUIExample {
         id(new PHUIBoxView())
           ->appendChild($content2),
         id(new PHUIBoxView())
-          ->appendChild($content3));
+          ->appendChild($content3),
+      );
 
 
     $layout2 =
@@ -38,7 +39,8 @@ final class PHUIBoxExample extends PhabricatorUIExample {
         id(new PHUIBoxView())
           ->appendChild($content3)
           ->addMargin(PHUI::MARGIN_LARGE_LEFT)
-          ->addMargin(PHUI::MARGIN_LARGE_TOP));
+          ->addMargin(PHUI::MARGIN_LARGE_TOP),
+      );
 
     $layout3 =
       array(
@@ -56,27 +58,27 @@ final class PHUIBoxExample extends PhabricatorUIExample {
           ->appendChild($content3)
           ->setBorder(true)
           ->addPadding(PHUI::PADDING_LARGE)
-          ->addMargin(PHUI::MARGIN_LARGE_BOTTOM));
+          ->addMargin(PHUI::MARGIN_LARGE_BOTTOM),
+      );
 
     $image = id(new PHUIIconView())
-          ->setSpriteSheet(PHUIIconView::SPRITE_ICONS)
-          ->setSpriteIcon('love');
+          ->setIconFont('fa-heart');
     $button = id(new PHUIButtonView())
         ->setTag('a')
         ->setColor(PHUIButtonView::SIMPLE)
         ->setIcon($image)
-        ->setText('Such Wow')
+        ->setText(pht('Such Wow'))
         ->addClass(PHUI::MARGIN_SMALL_RIGHT);
 
     $header = id(new PHUIHeaderView())
-      ->setHeader('Fancy Box')
+      ->setHeader(pht('Fancy Box'))
       ->addActionLink($button);
 
     $obj4 = id(new PHUIObjectBoxView())
       ->setHeader($header)
       ->appendChild(id(new PHUIBoxView())
         ->addPadding(PHUI::PADDING_MEDIUM)
-        ->appendChild('Such Fancy, Nice Box, Many Corners.'));
+        ->appendChild(pht('Such Fancy, Nice Box, Many Corners.')));
 
     $head1 = id(new PHUIHeaderView())
       ->setHeader(pht('Plain Box'));
@@ -115,5 +117,5 @@ final class PHUIBoxExample extends PhabricatorUIExample {
           $head4,
           $obj4,
         ));
-        }
+      }
 }

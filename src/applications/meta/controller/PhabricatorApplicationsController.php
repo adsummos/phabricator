@@ -2,10 +2,6 @@
 
 abstract class PhabricatorApplicationsController extends PhabricatorController {
 
-  public function shouldRequireAdmin() {
-    return true;
-  }
-
   public function buildSideNavView($for_app = false) {
     $user = $this->getRequest()->getUser();
 
@@ -23,6 +19,15 @@ abstract class PhabricatorApplicationsController extends PhabricatorController {
 
   public function buildApplicationMenu() {
     return $this->buildSideNavView(true)->getMenu();
+  }
+
+  protected function addApplicationCrumb(
+    PHUICrumbsView $crumbs,
+    PhabricatorApplication $application) {
+
+    $crumbs->addTextCrumb(
+      $application->getName(),
+      '/applications/view/'.get_class($application).'/');
   }
 
 }

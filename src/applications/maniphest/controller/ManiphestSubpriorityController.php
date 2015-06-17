@@ -1,8 +1,5 @@
 <?php
 
-/**
- * @group maniphest
- */
 final class ManiphestSubpriorityController extends ManiphestController {
 
   public function processRequest() {
@@ -16,6 +13,7 @@ final class ManiphestSubpriorityController extends ManiphestController {
     $task = id(new ManiphestTaskQuery())
       ->setViewer($user)
       ->withIDs(array($request->getInt('task')))
+      ->needProjectPHIDs(true)
       ->requireCapabilities(
         array(
           PhabricatorPolicyCapability::CAN_VIEW,
@@ -34,35 +32,32 @@ final class ManiphestSubpriorityController extends ManiphestController {
       if (!$after_task) {
         return new Aphront404Response();
       }
-      $after_pri = $after_task->getPriority();
-      $after_sub = $after_task->getSubpriority();
+      list($pri, $sub) = ManiphestTransactionEditor::getAdjacentSubpriority(
+        $after_task,
+        $is_after = true);
     } else {
-      $after_pri = $request->getInt('priority');
-      $after_sub = null;
+      list($pri, $sub) = ManiphestTransactionEditor::getEdgeSubpriority(
+        $request->getInt('priority'),
+        $is_end = false);
     }
 
-    $new_sub = ManiphestTransactionEditor::getNextSubpriority(
-      $after_pri,
-      $after_sub);
+    $xactions = array();
 
-    $task->setSubpriority($new_sub);
+    $xactions[] = id(new ManiphestTransaction())
+      ->setTransactionType(ManiphestTransaction::TYPE_PRIORITY)
+      ->setNewValue($pri);
 
-    if ($after_pri != $task->getPriority()) {
-      $xactions = array();
-      $xactions[] = id(new ManiphestTransaction())
-        ->setTransactionType(ManiphestTransaction::TYPE_PRIORITY)
-        ->setNewValue($after_pri);
+    $xactions[] = id(new ManiphestTransaction())
+      ->setTransactionType(ManiphestTransaction::TYPE_SUBPRIORITY)
+      ->setNewValue($sub);
 
-      $editor = id(new ManiphestTransactionEditor())
-        ->setActor($user)
-        ->setContinueOnMissingFields(true)
-        ->setContinueOnNoEffect(true)
-        ->setContentSourceFromRequest($request);
+    $editor = id(new ManiphestTransactionEditor())
+      ->setActor($user)
+      ->setContinueOnMissingFields(true)
+      ->setContinueOnNoEffect(true)
+      ->setContentSourceFromRequest($request);
 
-      $editor->applyTransactions($task, $xactions);
-    } else {
-      $task->save();
-    }
+    $editor->applyTransactions($task, $xactions);
 
     return id(new AphrontAjaxResponse())->setContent(
       array(

@@ -214,7 +214,6 @@ final class HeraldNewController extends HeraldController {
       ),
       array(
         'title' => pht('Create Herald Rule'),
-        'device' => true,
       ));
   }
 
@@ -252,7 +251,7 @@ final class HeraldNewController extends HeraldController {
       )) + $rule_type_map;
 
     list($can_global, $global_link) = $this->explainApplicationCapability(
-      HeraldCapabilityManageGlobalRules::CAPABILITY,
+      HeraldManageGlobalRulesCapability::CAPABILITY,
       pht('You have permission to create and manage global rules.'),
       pht('You do not have permission to create or manage global rules.'));
 
@@ -267,7 +266,7 @@ final class HeraldNewController extends HeraldController {
           'Object rules notify anyone about events. They are bound to an '.
           'object (like a repository) and can only act on that object. You '.
           'must be able to edit an object to create object rules for it. '.
-          'Other users who an edit the object can edit its rules.'),
+          'Other users who can edit the object can edit its rules.'),
       HeraldRuleTypeConfig::RULE_TYPE_GLOBAL =>
         array(
           pht(
@@ -314,4 +313,5 @@ final class HeraldNewController extends HeraldController {
 
     return $radio;
   }
+
 }

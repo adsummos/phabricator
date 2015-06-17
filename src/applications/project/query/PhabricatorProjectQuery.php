@@ -7,7 +7,11 @@ final class PhabricatorProjectQuery
   private $phids;
   private $memberPHIDs;
   private $slugs;
+  private $phrictionSlugs;
   private $names;
+  private $nameTokens;
+  private $icons;
+  private $colors;
 
   private $status       = 'status-any';
   const STATUS_ANY      = 'status-any';
@@ -16,7 +20,9 @@ final class PhabricatorProjectQuery
   const STATUS_ACTIVE   = 'status-active';
   const STATUS_ARCHIVED = 'status-archived';
 
+  private $needSlugs;
   private $needMembers;
+  private $needWatchers;
   private $needImages;
 
   public function withIDs(array $ids) {
@@ -39,8 +45,13 @@ final class PhabricatorProjectQuery
     return $this;
   }
 
-  public function withPhrictionSlugs(array $slugs) {
+  public function withSlugs(array $slugs) {
     $this->slugs = $slugs;
+    return $this;
+  }
+
+  public function withPhrictionSlugs(array $slugs) {
+    $this->phrictionSlugs = $slugs;
     return $this;
   }
 
@@ -49,8 +60,28 @@ final class PhabricatorProjectQuery
     return $this;
   }
 
+  public function withNameTokens(array $tokens) {
+    $this->nameTokens = array_values($tokens);
+    return $this;
+  }
+
+  public function withIcons(array $icons) {
+    $this->icons = $icons;
+    return $this;
+  }
+
+  public function withColors(array $colors) {
+    $this->colors = $colors;
+    return $this;
+  }
+
   public function needMembers($need_members) {
     $this->needMembers = $need_members;
+    return $this;
+  }
+
+  public function needWatchers($need_watchers) {
+    $this->needWatchers = $need_watchers;
     return $this;
   }
 
@@ -59,65 +90,100 @@ final class PhabricatorProjectQuery
     return $this;
   }
 
-  protected function getPagingColumn() {
-    return 'name';
+  public function needSlugs($need_slugs) {
+    $this->needSlugs = $need_slugs;
+    return $this;
   }
 
-  protected function getPagingValue($result) {
-    return $result->getName();
+  public function newResultObject() {
+    return new PhabricatorProject();
   }
 
-  protected function getReversePaging() {
-    return true;
+  protected function getDefaultOrderVector() {
+    return array('name');
+  }
+
+  public function getBuiltinOrders() {
+    return array(
+      'name' => array(
+        'vector' => array('name'),
+        'name' => pht('Name'),
+      ),
+    ) + parent::getBuiltinOrders();
+  }
+
+  public function getOrderableColumns() {
+    return parent::getOrderableColumns() + array(
+      'name' => array(
+        'table' => $this->getPrimaryTableAlias(),
+        'column' => 'name',
+        'reverse' => true,
+        'type' => 'string',
+        'unique' => true,
+      ),
+    );
+  }
+
+  protected function getPagingValueMap($cursor, array $keys) {
+    $project = $this->loadCursorObject($cursor);
+    return array(
+      'name' => $project->getName(),
+    );
   }
 
   protected function loadPage() {
     $table = new PhabricatorProject();
-    $conn_r = $table->establishConnection('r');
-
-    // NOTE: Because visibility checks for projects depend on whether or not
-    // the user is a project member, we always load their membership. If we're
-    // loading all members anyway we can piggyback on that; otherwise we
-    // do an explicit join.
-
-    $select_clause = '';
-    if (!$this->needMembers) {
-      $select_clause = ', vm.dst viewerIsMember';
-    }
-
-    $data = queryfx_all(
-      $conn_r,
-      'SELECT p.* %Q FROM %T p %Q %Q %Q %Q %Q',
-      $select_clause,
-      $table->getTableName(),
-      $this->buildJoinClause($conn_r),
-      $this->buildWhereClause($conn_r),
-      $this->buildGroupClause($conn_r),
-      $this->buildOrderClause($conn_r),
-      $this->buildLimitClause($conn_r));
-
+    $data = $this->loadStandardPageRows($table);
     $projects = $table->loadAllFromArray($data);
 
     if ($projects) {
       $viewer_phid = $this->getViewer()->getPHID();
+      $project_phids = mpull($projects, 'getPHID');
+
+      $member_type = PhabricatorProjectProjectHasMemberEdgeType::EDGECONST;
+      $watcher_type = PhabricatorObjectHasWatcherEdgeType::EDGECONST;
+
+      $need_edge_types = array();
       if ($this->needMembers) {
-        $etype = PhabricatorEdgeConfig::TYPE_PROJ_MEMBER;
-        $members = id(new PhabricatorEdgeQuery())
-          ->withSourcePHIDs(mpull($projects, 'getPHID'))
-          ->withEdgeTypes(array($etype))
-          ->execute();
-        foreach ($projects as $project) {
-          $phid = $project->getPHID();
-          $project->attachMemberPHIDs(array_keys($members[$phid][$etype]));
-          $project->setIsUserMember(
-            $viewer_phid,
-            isset($members[$phid][$etype][$viewer_phid]));
-        }
+        $need_edge_types[] = $member_type;
       } else {
         foreach ($data as $row) {
           $projects[$row['id']]->setIsUserMember(
             $viewer_phid,
             ($row['viewerIsMember'] !== null));
+        }
+      }
+
+      if ($this->needWatchers) {
+        $need_edge_types[] = $watcher_type;
+      }
+
+      if ($need_edge_types) {
+        $edges = id(new PhabricatorEdgeQuery())
+          ->withSourcePHIDs($project_phids)
+          ->withEdgeTypes($need_edge_types)
+          ->execute();
+
+        if ($this->needMembers) {
+          foreach ($projects as $project) {
+            $phid = $project->getPHID();
+            $project->attachMemberPHIDs(
+              array_keys($edges[$phid][$member_type]));
+            $project->setIsUserMember(
+              $viewer_phid,
+              isset($edges[$phid][$member_type][$viewer_phid]));
+          }
+        }
+
+        if ($this->needWatchers) {
+          foreach ($projects as $project) {
+            $phid = $project->getPHID();
+            $project->attachWatcherPHIDs(
+              array_keys($edges[$phid][$watcher_type]));
+            $project->setIsUserWatcher(
+              $viewer_phid,
+              isset($edges[$phid][$watcher_type][$viewer_phid]));
+          }
         }
       }
     }
@@ -150,11 +216,37 @@ final class PhabricatorProjectQuery
       }
     }
 
+    if ($this->needSlugs) {
+      $slugs = id(new PhabricatorProjectSlug())
+        ->loadAllWhere(
+          'projectPHID IN (%Ls)',
+          mpull($projects, 'getPHID'));
+      $slugs = mgroup($slugs, 'getProjectPHID');
+      foreach ($projects as $project) {
+        $project_slugs = idx($slugs, $project->getPHID(), array());
+        $project->attachSlugs($project_slugs);
+      }
+    }
+
     return $projects;
   }
 
-  private function buildWhereClause($conn_r) {
-    $where = array();
+  protected function buildSelectClauseParts(AphrontDatabaseConnection $conn) {
+    $select = parent::buildSelectClauseParts($conn);
+
+    // NOTE: Because visibility checks for projects depend on whether or not
+    // the user is a project member, we always load their membership. If we're
+    // loading all members anyway we can piggyback on that; otherwise we
+    // do an explicit join.
+    if (!$this->needMembers) {
+      $select[] = 'vm.dst viewerIsMember';
+    }
+
+    return $select;
+  }
+
+  protected function buildWhereClauseParts(AphrontDatabaseConnection $conn) {
+    $where = parent::buildWhereClauseParts($conn);
 
     if ($this->status != self::STATUS_ANY) {
       switch ($this->status) {
@@ -172,94 +264,132 @@ final class PhabricatorProjectQuery
           break;
         default:
           throw new Exception(
-            "Unknown project status '{$this->status}'!");
+            pht(
+              "Unknown project status '%s'!",
+              $this->status));
       }
       $where[] = qsprintf(
-        $conn_r,
+        $conn,
         'status IN (%Ld)',
         $filter);
     }
 
-    if ($this->ids) {
+    if ($this->ids !== null) {
       $where[] = qsprintf(
-        $conn_r,
+        $conn,
         'id IN (%Ld)',
         $this->ids);
     }
 
-    if ($this->phids) {
+    if ($this->phids !== null) {
       $where[] = qsprintf(
-        $conn_r,
+        $conn,
         'phid IN (%Ls)',
         $this->phids);
     }
 
-    if ($this->memberPHIDs) {
+    if ($this->memberPHIDs !== null) {
       $where[] = qsprintf(
-        $conn_r,
+        $conn,
         'e.dst IN (%Ls)',
         $this->memberPHIDs);
     }
 
-    if ($this->slugs) {
+    if ($this->slugs !== null) {
       $where[] = qsprintf(
-        $conn_r,
-        'phrictionSlug IN (%Ls)',
+        $conn,
+        'slug.slug IN (%Ls)',
         $this->slugs);
     }
 
-    if ($this->names) {
+    if ($this->phrictionSlugs !== null) {
       $where[] = qsprintf(
-        $conn_r,
+        $conn,
+        'phrictionSlug IN (%Ls)',
+        $this->phrictionSlugs);
+    }
+
+    if ($this->names !== null) {
+      $where[] = qsprintf(
+        $conn,
         'name IN (%Ls)',
         $this->names);
     }
 
-    $where[] = $this->buildPagingClause($conn_r);
-
-    return $this->formatWhereClause($where);
-  }
-
-  private function buildGroupClause($conn_r) {
-    if ($this->memberPHIDs) {
-      return 'GROUP BY p.id';
-    } else {
-      return $this->buildApplicationSearchGroupClause($conn_r);
+    if ($this->icons !== null) {
+      $where[] = qsprintf(
+        $conn,
+        'icon IN (%Ls)',
+        $this->icons);
     }
+
+    if ($this->colors !== null) {
+      $where[] = qsprintf(
+        $conn,
+        'color IN (%Ls)',
+        $this->colors);
+    }
+
+    return $where;
   }
 
-  private function buildJoinClause($conn_r) {
-    $joins = array();
+  protected function shouldGroupQueryResultRows() {
+    if ($this->memberPHIDs || $this->nameTokens) {
+      return true;
+    }
+    return parent::shouldGroupQueryResultRows();
+  }
 
-    if (!$this->needMembers) {
+  protected function buildJoinClauseParts(AphrontDatabaseConnection $conn) {
+    $joins = parent::buildJoinClauseParts($conn);
+
+    if (!$this->needMembers !== null) {
       $joins[] = qsprintf(
-        $conn_r,
+        $conn,
         'LEFT JOIN %T vm ON vm.src = p.phid AND vm.type = %d AND vm.dst = %s',
         PhabricatorEdgeConfig::TABLE_NAME_EDGE,
-        PhabricatorEdgeConfig::TYPE_PROJ_MEMBER,
+        PhabricatorProjectProjectHasMemberEdgeType::EDGECONST,
         $this->getViewer()->getPHID());
     }
 
-    if ($this->memberPHIDs) {
+    if ($this->memberPHIDs !== null) {
       $joins[] = qsprintf(
-        $conn_r,
+        $conn,
         'JOIN %T e ON e.src = p.phid AND e.type = %d',
         PhabricatorEdgeConfig::TABLE_NAME_EDGE,
-        PhabricatorEdgeConfig::TYPE_PROJ_MEMBER);
+        PhabricatorProjectProjectHasMemberEdgeType::EDGECONST);
     }
 
-    $joins[] = $this->buildApplicationSearchJoinClause($conn_r);
+    if ($this->slugs !== null) {
+      $joins[] = qsprintf(
+        $conn,
+        'JOIN %T slug on slug.projectPHID = p.phid',
+        id(new PhabricatorProjectSlug())->getTableName());
+    }
 
-    return implode(' ', $joins);
+    if ($this->nameTokens !== null) {
+      foreach ($this->nameTokens as $key => $token) {
+        $token_table = 'token_'.$key;
+        $joins[] = qsprintf(
+          $conn,
+          'JOIN %T %T ON %T.projectID = p.id AND %T.token LIKE %>',
+          PhabricatorProject::TABLE_DATASOURCE_TOKEN,
+          $token_table,
+          $token_table,
+          $token_table,
+          $token);
+      }
+    }
+
+    return $joins;
   }
-
 
   public function getQueryApplicationClass() {
-    return 'PhabricatorApplicationProject';
+    return 'PhabricatorProjectApplication';
   }
 
-  protected function getApplicationSearchObjectPHIDColumn() {
-    return 'p.phid';
+  protected function getPrimaryTableAlias() {
+    return 'p';
   }
 
 }

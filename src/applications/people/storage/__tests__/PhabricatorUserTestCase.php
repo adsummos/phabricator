@@ -36,13 +36,20 @@ final class PhabricatorUserTestCase extends PhabricatorTestCase {
       'a,lincoln'   => false,
       'a&lincoln'   => false,
       'a/lincoln'   => false,
+
+      "username\n"  => false,
+      "user\nname"  => false,
+      "\nusername"  => false,
+      "username\r"  => false,
+      "user\rname"  => false,
+      "\rusername"  => false,
     );
 
     foreach ($map as $name => $expect) {
       $this->assertEqual(
         $expect,
         PhabricatorUser::validateUsername($name),
-        "Validity of '{$name}'.");
+        pht("Validity of '%s'.", $name));
     }
   }
 

@@ -22,6 +22,7 @@ final class PHUIBoxView extends AphrontTagView {
   }
 
   protected function getTagAttributes() {
+    require_celerity_resource('phui-box-css');
     $outer_classes = array();
     $outer_classes[] = 'phui-box';
     if ($this->border) {
@@ -30,28 +31,17 @@ final class PHUIBoxView extends AphrontTagView {
     foreach ($this->margin as $margin) {
       $outer_classes[] = $margin;
     }
-
+    foreach ($this->padding as $padding) {
+      $outer_classes[] = $padding;
+    }
     return array('class' => $outer_classes);
   }
 
-  public function getTagName() {
+  protected function getTagName() {
     return 'div';
   }
 
-  public function getTagContent() {
-    require_celerity_resource('phui-box-css');
-
-    $inner_classes = array();
-    $inner_classes[] = 'phui-box-inner';
-    foreach ($this->padding as $padding) {
-      $inner_classes[] = $padding;
-    }
-
-    return phutil_tag(
-      'div',
-        array(
-          'class' => implode(' ', $inner_classes)
-        ),
-        $this->renderChildren());
+  protected function getTagContent() {
+    return $this->renderChildren();
   }
 }

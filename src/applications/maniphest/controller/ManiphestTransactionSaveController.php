@@ -1,92 +1,29 @@
 <?php
 
-/**
- * @group maniphest
- */
 final class ManiphestTransactionSaveController extends ManiphestController {
 
   public function processRequest() {
     $request = $this->getRequest();
     $user = $request->getUser();
 
-    // TODO: T603 This doesn't require CAN_EDIT because non-editors can still
-    // leave comments, probably? For now, this just nondisruptive. Smooth this
-    // out once policies are more clear.
-
     $task = id(new ManiphestTaskQuery())
       ->setViewer($user)
       ->withIDs(array($request->getStr('taskID')))
+      ->needSubscriberPHIDs(true)
+      ->needProjectPHIDs(true)
       ->executeOne();
     if (!$task) {
       return new Aphront404Response();
     }
 
+    $task_uri = '/'.$task->getMonogram();
+
     $transactions = array();
 
     $action = $request->getStr('action');
 
-    // If we have drag-and-dropped files, attach them first in a separate
-    // transaction. These can come in on any transaction type, which is why we
-    // handle them separately.
-    $files = array();
-
-    // Look for drag-and-drop uploads first.
-    $file_phids = $request->getArr('files');
-    if ($file_phids) {
-      $files = id(new PhabricatorFileQuery())
-        ->setViewer($user)
-        ->withPHIDs(array($file_phids))
-        ->execute();
-    }
-
-    // This means "attach a file" even though we store other types of data
-    // as 'attached'.
-    if ($action == ManiphestTransaction::TYPE_ATTACH) {
-      if (!empty($_FILES['file'])) {
-        $err = idx($_FILES['file'], 'error');
-        if ($err != UPLOAD_ERR_NO_FILE) {
-          $file = PhabricatorFile::newFromPHPUpload(
-            $_FILES['file'],
-            array(
-              'authorPHID' => $user->getPHID(),
-            ));
-          $files[] = $file;
-        }
-      }
-    }
-
-    // If we had explicit or drag-and-drop files, create a transaction
-    // for those before we deal with whatever else might have happened.
-    $file_transaction = null;
-    if ($files) {
-      $files = mpull($files, 'getPHID', 'getPHID');
-      $new = $task->getAttached();
-      foreach ($files as $phid) {
-        if (empty($new[PhabricatorFilePHIDTypeFile::TYPECONST])) {
-          $new[PhabricatorFilePHIDTypeFile::TYPECONST] = array();
-        }
-        $new[PhabricatorFilePHIDTypeFile::TYPECONST][$phid] = array();
-      }
-      $transaction = new ManiphestTransaction();
-      $transaction
-        ->setTransactionType(ManiphestTransaction::TYPE_ATTACH);
-      $transaction->setNewValue($new);
-      $transactions[] = $transaction;
-    }
-
-    // Compute new CCs added by @mentions. Several things can cause CCs to
-    // be added as side effects: mentions, explicit CCs, users who aren't
-    // CC'd interacting with the task, and ownership changes. We build up a
-    // list of all the CCs and then construct a transaction for them at the
-    // end if necessary.
-    $added_ccs = PhabricatorMarkupEngine::extractPHIDsFromMentions(
-      array(
-        $request->getStr('comments'),
-      ));
-
-    $cc_transaction = new ManiphestTransaction();
-    $cc_transaction
-      ->setTransactionType(ManiphestTransaction::TYPE_CCS);
+    $implicit_ccs = array();
+    $explicit_ccs = array();
 
     $transaction = new ManiphestTransaction();
     $transaction
@@ -101,17 +38,24 @@ final class ManiphestTransactionSaveController extends ManiphestController {
         $assign_to = reset($assign_to);
         $transaction->setNewValue($assign_to);
         break;
-      case ManiphestTransaction::TYPE_PROJECTS:
+      case PhabricatorTransactions::TYPE_EDGE:
         $projects = $request->getArr('projects');
         $projects = array_merge($projects, $task->getProjectPHIDs());
         $projects = array_filter($projects);
         $projects = array_unique($projects);
-        $transaction->setNewValue($projects);
+
+        $project_type = PhabricatorProjectObjectHasProjectEdgeType::EDGECONST;
+        $transaction
+          ->setMetadataValue('edge:type', $project_type)
+          ->setNewValue(
+            array(
+              '+' => array_fuse($projects),
+            ));
         break;
-      case ManiphestTransaction::TYPE_CCS:
+      case PhabricatorTransactions::TYPE_SUBSCRIBERS:
         // Accumulate the new explicit CCs into the array that we'll add in
         // the CC transaction later.
-        $added_ccs = array_merge($added_ccs, $request->getArr('ccs'));
+        $explicit_ccs = $request->getArr('ccs');
 
         // Throw away the primary transaction.
         $transaction = null;
@@ -119,29 +63,18 @@ final class ManiphestTransactionSaveController extends ManiphestController {
       case ManiphestTransaction::TYPE_PRIORITY:
         $transaction->setNewValue($request->getInt('priority'));
         break;
-      case ManiphestTransaction::TYPE_ATTACH:
-        // Nuke this, we created it above.
-        $transaction = null;
-        break;
       case PhabricatorTransactions::TYPE_COMMENT:
         // Nuke this, we're going to create it below.
         $transaction = null;
         break;
       default:
-        throw new Exception('unknown action');
+        throw new Exception(pht("Unknown action '%s'!", $action));
     }
 
     if ($transaction) {
       $transactions[] = $transaction;
     }
 
-    if ($request->getStr('comments')) {
-      $transactions[] = id(new ManiphestTransaction())
-        ->setTransactionType(PhabricatorTransactions::TYPE_COMMENT)
-        ->attachComment(
-          id(new ManiphestTransactionComment())
-            ->setContent($request->getStr('comments')));
-    }
 
     // When you interact with a task, we add you to the CC list so you get
     // further updates, and possibly assign the task to you if you took an
@@ -150,31 +83,31 @@ final class ManiphestTransactionSaveController extends ManiphestController {
     // and create side-effect transactions for them.
 
     $implicitly_claimed = false;
-    switch ($action) {
-      case ManiphestTransaction::TYPE_OWNER:
-        if ($task->getOwnerPHID() == $transaction->getNewValue()) {
-          // If this is actually no-op, don't generate the side effect.
-          break;
-        }
+    if ($action == ManiphestTransaction::TYPE_OWNER) {
+      if ($task->getOwnerPHID() == $transaction->getNewValue()) {
+        // If this is actually no-op, don't generate the side effect.
+      } else {
         // Otherwise, when a task is reassigned, move the previous owner to CC.
-        $added_ccs[] = $task->getOwnerPHID();
-        break;
-      case ManiphestTransaction::TYPE_STATUS:
-        if (!$task->getOwnerPHID() &&
-            $request->getStr('resolution') !=
-            ManiphestTaskStatus::STATUS_OPEN) {
-          // Closing an unassigned task. Assign the user as the owner of
-          // this task.
-          $assign = new ManiphestTransaction();
-          $assign->setTransactionType(ManiphestTransaction::TYPE_OWNER);
-          $assign->setNewValue($user->getPHID());
-          $transactions[] = $assign;
-
-          $implicitly_claimed = true;
+        if ($task->getOwnerPHID()) {
+          $implicit_ccs[] = $task->getOwnerPHID();
         }
-        break;
+      }
     }
 
+    if ($action == ManiphestTransaction::TYPE_STATUS) {
+      $resolution = $request->getStr('resolution');
+      if (!$task->getOwnerPHID() &&
+          ManiphestTaskStatus::isClosedStatus($resolution)) {
+        // Closing an unassigned task. Assign the user as the owner of
+        // this task.
+        $assign = new ManiphestTransaction();
+        $assign->setTransactionType(ManiphestTransaction::TYPE_OWNER);
+        $assign->setNewValue($user->getPHID());
+        $transactions[] = $assign;
+
+        $implicitly_claimed = true;
+      }
+    }
 
     $user_owns_task = false;
     if ($implicitly_claimed) {
@@ -192,20 +125,36 @@ final class ManiphestTransactionSaveController extends ManiphestController {
     if (!$user_owns_task) {
       // If we aren't making the user the new task owner and they aren't the
       // existing task owner, add them to CC unless they're aleady CC'd.
-      if (!in_array($user->getPHID(), $task->getCCPHIDs())) {
-        $added_ccs[] = $user->getPHID();
+      if (!in_array($user->getPHID(), $task->getSubscriberPHIDs())) {
+        $implicit_ccs[] = $user->getPHID();
       }
     }
 
-    // Evade no-effect detection in the new editor stuff until we can switch
-    // to subscriptions.
-    $added_ccs = array_filter(array_diff($added_ccs, $task->getCCPHIDs()));
+    if ($implicit_ccs || $explicit_ccs) {
 
-    if ($added_ccs) {
-      // We've added CCs, so include a CC transaction.
-      $all_ccs = array_merge($task->getCCPHIDs(), $added_ccs);
-      $cc_transaction->setNewValue($all_ccs);
+      // TODO: These implicit CC rules should probably be handled inside the
+      // Editor, eventually.
+
+      $all_ccs = array_fuse($implicit_ccs) + array_fuse($explicit_ccs);
+
+      $cc_transaction = id(new ManiphestTransaction())
+        ->setTransactionType(PhabricatorTransactions::TYPE_SUBSCRIBERS)
+        ->setNewValue(array('+' => $all_ccs));
+
+      if (!$explicit_ccs) {
+        $cc_transaction->setIgnoreOnNoEffect(true);
+      }
+
       $transactions[] = $cc_transaction;
+    }
+
+    $comments = $request->getStr('comments');
+    if (strlen($comments) || !$transactions) {
+      $transactions[] = id(new ManiphestTransaction())
+        ->setTransactionType(PhabricatorTransactions::TYPE_COMMENT)
+        ->attachComment(
+          id(new ManiphestTransactionComment())
+            ->setContent($comments));
     }
 
     $event = new PhabricatorEvent(
@@ -226,7 +175,15 @@ final class ManiphestTransactionSaveController extends ManiphestController {
       ->setActor($user)
       ->setContentSourceFromRequest($request)
       ->setContinueOnMissingFields(true)
-      ->applyTransactions($task, $transactions);
+      ->setContinueOnNoEffect($request->isContinueRequest());
+
+    try {
+      $editor->applyTransactions($task, $transactions);
+    } catch (PhabricatorApplicationTransactionNoEffectException $ex) {
+      return id(new PhabricatorApplicationTransactionNoEffectResponse())
+        ->setCancelURI($task_uri)
+        ->setException($ex);
+    }
 
     $draft = id(new PhabricatorDraft())->loadOneWhere(
       'authorPHID = %s AND draftKey = %s',
@@ -247,8 +204,7 @@ final class ManiphestTransactionSaveController extends ManiphestController {
     $event->setAphrontRequest($request);
     PhutilEventEngine::dispatchEvent($event);
 
-    return id(new AphrontRedirectResponse())
-      ->setURI('/T'.$task->getID());
+    return id(new AphrontRedirectResponse())->setURI($task_uri);
   }
 
 }

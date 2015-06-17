@@ -3,55 +3,58 @@
 final class PhabricatorAuditManagementDeleteWorkflow
   extends PhabricatorAuditManagementWorkflow {
 
-  public function didConstruct() {
+  protected function didConstruct() {
     $this
       ->setName('delete')
       ->setExamples('**delete** [--dry-run] ...')
-      ->setSynopsis('Delete audit requests matching parameters.')
+      ->setSynopsis(pht('Delete audit requests matching parameters.'))
       ->setArguments(
         array(
           array(
             'name' => 'dry-run',
-            'help' => 'Show what would be deleted, but do not actually delete '.
-                      'anything.',
+            'help' => pht(
+              'Show what would be deleted, but do not actually delete '.
+              'anything.'),
           ),
           array(
             'name' => 'users',
             'param' => 'names',
-            'help' => 'Select only audits by a given list of users.',
+            'help' => pht('Select only audits by a given list of users.'),
           ),
           array(
             'name' => 'repositories',
             'param' => 'repos',
-            'help' => 'Select only audits in a given list of repositories.',
+            'help' => pht(
+              'Select only audits in a given list of repositories.'),
           ),
           array(
             'name' => 'commits',
             'param' => 'commits',
-            'help' => 'Select only audits for the given commits.',
+            'help' => pht('Select only audits for the given commits.'),
           ),
           array(
             'name' => 'min-commit-date',
             'param' => 'date',
-            'help' => 'Select only audits for commits on or after the given '.
-                      'date.',
+            'help' => pht(
+              'Select only audits for commits on or after the given date.'),
           ),
           array(
             'name' => 'max-commit-date',
             'param' => 'date',
-            'help' => 'Select only audits for commits on or before the given '.
-                      'date.',
+            'help' => pht(
+              'Select only audits for commits on or before the given date.'),
           ),
           array(
             'name' => 'status',
             'param' => 'status',
-            'help' => 'Select only audits in the given status. By default, '.
-                      'only open audits are selected.',
+            'help' => pht(
+              'Select only audits in the given status. By default, '.
+              'only open audits are selected.'),
           ),
           array(
             'name' => 'ids',
             'param' => 'ids',
-            'help' => 'Select only audits with the given IDs.',
+            'help' => pht('Select only audits with the given IDs.'),
           ),
         ));
   }
@@ -65,77 +68,80 @@ final class PhabricatorAuditManagementDeleteWorkflow
 
     $status = $args->getArg('status');
     if (!$status) {
-      $status = PhabricatorAuditQuery::STATUS_OPEN;
+      $status = DiffusionCommitQuery::AUDIT_STATUS_OPEN;
     }
 
     $min_date = $this->loadDate($args->getArg('min-commit-date'));
     $max_date = $this->loadDate($args->getArg('max-commit-date'));
     if ($min_date && $max_date && ($min_date > $max_date)) {
       throw new PhutilArgumentUsageException(
-        "Specified max date must come after specified min date.");
+        pht('Specified maximum date must come after specified minimum date.'));
     }
 
     $is_dry_run = $args->getArg('dry-run');
 
-    $query = id(new PhabricatorAuditQuery())
-      ->needCommits(true);
+    $query = id(new DiffusionCommitQuery())
+      ->setViewer($this->getViewer())
+      ->needAuditRequests(true);
 
     if ($status) {
-      $query->withStatus($status);
+      $query->withAuditStatus($status);
     }
 
+    $id_map = array();
     if ($ids) {
-      $query->withIDs($ids);
+      $id_map = array_fuse($ids);
+      $query->withAuditIDs($ids);
     }
 
     if ($repos) {
-      $query->withRepositoryPHIDs(mpull($repos, 'getPHID'));
+      $query->withRepositoryIDs(mpull($repos, 'getID'));
     }
 
+    $auditor_map = array();
     if ($users) {
-      $query->withAuditorPHIDs(mpull($users, 'getPHID'));
+      $auditor_map = array_fuse(mpull($users, 'getPHID'));
+      $query->withAuditorPHIDs($auditor_map);
     }
 
     if ($commits) {
-      $query->withCommitPHIDs(mpull($commits, 'getPHID'));
+      $query->withPHIDs(mpull($commits, 'getPHID'));
     }
 
-    $audits = $query->execute();
-    $commits = $query->getCommits();
+    $commits = $query->execute();
+    $commits = mpull($commits, null, 'getPHID');
+    $audits = array();
+    foreach ($commits as $commit) {
+      $commit_audits = $commit->getAudits();
+      foreach ($commit_audits as $key => $audit) {
+        if ($id_map && empty($id_map[$audit->getID()])) {
+          unset($commit_audits[$key]);
+          continue;
+        }
 
-    if ($commits) {
-      // TODO: AuditQuery is currently not policy-aware and uses an old query
-      // to load commits. Load them in the modern way to get repositories.
-      // Remove this after modernizing PhabricatorAuditQuery.
-      $commits = id(new DiffusionCommitQuery())
-        ->setViewer($viewer)
-        ->withPHIDs(mpull($commits, 'getPHID'))
-        ->execute();
-      $commits = mpull($commits, null, 'getPHID');
+        if ($auditor_map && empty($auditor_map[$audit->getAuditorPHID()])) {
+          unset($commit_audits[$key]);
+          continue;
+        }
+
+        if ($min_date && $commit->getEpoch() < $min_date) {
+          unset($commit_audits[$key]);
+          continue;
+        }
+
+        if ($max_date && $commit->getEpoch() > $max_date) {
+          unset($commit_audits[$key]);
+          continue;
+        }
+      }
+      $audits[] = $commit_audits;
     }
-
-    foreach ($audits as $key => $audit) {
-      $commit = idx($commits, $audit->getCommitPHID());
-      if (!$commit) {
-        unset($audits[$key]);
-        continue;
-      }
-
-      if ($min_date && $commit->getEpoch() < $min_date) {
-        unset($audits[$key]);
-        continue;
-      }
-
-      if ($max_date && $commit->getEpoch() > $max_date) {
-        unset($audits[$key]);
-        continue;
-      }
-    }
+    $audits = array_mergev($audits);
 
     $console = PhutilConsole::getConsole();
 
     if (!$audits) {
-      $console->writeErr("%s\n", pht("No audits match the query."));
+      $console->writeErr("%s\n", pht('No audits match the query.'));
       return 0;
     }
 
@@ -146,12 +152,12 @@ final class PhabricatorAuditManagementDeleteWorkflow
 
 
     foreach ($audits as $audit) {
-      $commit = idx($commits, $audit->getCommitPHID());
+      $commit = $commits[$audit->getCommitPHID()];
 
       $console->writeOut(
         "%s\n",
         sprintf(
-          "%10d %-16s %-16s %s: %s",
+          '%10d %-16s %-16s %s: %s',
           $audit->getID(),
           $handles[$audit->getAuditorPHID()]->getName(),
           PhabricatorAuditStatusConstants::getStatusName(
@@ -169,7 +175,7 @@ final class PhabricatorAuditManagementDeleteWorkflow
       if ($console->confirm($message)) {
         foreach ($audits as $audit) {
           $id = $audit->getID();
-          $console->writeOut("%s\n", pht("Deleting audit %d...", $id));
+          $console->writeOut("%s\n", pht('Deleting audit %d...', $id));
           $audit->delete();
         }
       }
@@ -247,8 +253,9 @@ final class PhabricatorAuditManagementDeleteWorkflow
     if (!$epoch || $epoch < 1) {
       throw new PhutilArgumentUsageException(
         pht(
-          'Unable to parse date "%s". Use a format like "2000-01-01".',
-          $date));
+          'Unable to parse date "%s". Use a format like "%s".',
+          $date,
+          '2000-01-01'));
     }
 
     return $epoch;

@@ -1,9 +1,5 @@
 <?php
 
-/**
- * While this class could take advantage of bulkLoad(), in practice
- * loadRelatives fixes all that for us.
- */
 final class ReleephDiffSizeFieldSpecification
   extends ReleephFieldSpecification {
 
@@ -16,14 +12,15 @@ final class ReleephDiffSizeFieldSpecification
   }
 
   public function getName() {
-    return 'Size';
+    return pht('Size');
   }
 
-  public function renderValueForHeaderView() {
-    $diff_rev = $this->getReleephRequest()->loadDifferentialRevision();
-    if (!$diff_rev) {
-      return '';
+  public function renderPropertyViewValue(array $handles) {
+    $requested_object = $this->getObject()->getRequestedObject();
+    if (!($requested_object instanceof DifferentialRevision)) {
+      return null;
     }
+    $diff_rev = $requested_object;
 
     $diffs = $diff_rev->loadRelatives(
       new DifferentialDiff(),
@@ -53,10 +50,10 @@ final class ReleephDiffSizeFieldSpecification
       Javelin::initBehavior('phabricator-tooltips');
       require_celerity_resource('aphront-tooltip-css');
 
-      $test_blurb =
-        pht('%d line(s)', $mr_changes['tests']['lines']).' and '.
-        pht('%d path(s)', count($mr_changes['tests']['paths'])).
-        " contain changes to test code:\n";
+      $test_blurb = pht(
+        "%d line(s) and %d path(s) contain changes to test code:\n",
+        $mr_changes['tests']['lines'],
+        count($mr_changes['tests']['paths']));
       foreach ($mr_changes['tests']['paths'] as $mr_test_path) {
         $test_blurb .= pht("%s\n", $mr_test_path);
       }
@@ -68,15 +65,19 @@ final class ReleephDiffSizeFieldSpecification
           'meta' => array(
             'tip' => $test_blurb,
             'align' => 'E',
-            'size' => 'auto'),
-          'style' => ''),
+            'size' => 'auto',
+          ),
+          'style' => '',
+        ),
         ' + tests');
     }
 
-    $blurb = hsprintf("%s%s.",
-      pht('%d line(s)', $mr_changes['code']['lines']).' and '.
-      pht('%d path(s)', count($mr_changes['code']['paths'])).' over '.
-      pht('%d diff(s)', count($diffs)),
+    $blurb = hsprintf('%s%s.',
+      pht(
+        '%d line(s) and %d path(s) over %d diff(s)',
+        $mr_changes['code']['lines'],
+        $mr_changes['code']['paths'],
+        count($diffs)),
       $test_tag);
 
     return id(new AphrontProgressBarView())
@@ -110,7 +111,7 @@ final class ReleephDiffSizeFieldSpecification
       'tests' => array(
         'lines' => $test_lines,
         'paths' => array_unique($test_paths_touched),
-      )
+      ),
     );
   }
 }

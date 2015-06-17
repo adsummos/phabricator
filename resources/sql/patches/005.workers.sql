@@ -1,5 +1,3 @@
-
-
 create table {$NAMESPACE}_worker.worker_task (
   id int unsigned not null auto_increment primary key,
   taskClass varchar(255) not null,
@@ -7,8 +5,8 @@ create table {$NAMESPACE}_worker.worker_task (
   leaseExpires int unsigned,
   priority bigint unsigned not null,
   failureCount int unsigned not null,
-  key(taskClass),
-  key(leaseOwner),
+  key(taskClass(128)),
+  key(leaseOwner(128)),
   key(leaseExpires)
 );
 

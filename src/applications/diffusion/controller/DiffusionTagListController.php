@@ -6,9 +6,8 @@ final class DiffusionTagListController extends DiffusionController {
     return true;
   }
 
-  public function processRequest() {
+  protected function processDiffusionRequest(AphrontRequest $request) {
     $drequest = $this->getDiffusionRequest();
-    $request = $this->getRequest();
     $viewer = $request->getUser();
 
     $repository = $drequest->getRepository();
@@ -19,24 +18,26 @@ final class DiffusionTagListController extends DiffusionController {
 
     $params = array(
       'limit' => $pager->getPageSize() + 1,
-      'offset' => $pager->getOffset());
-    if ($drequest->getRawCommit()) {
+      'offset' => $pager->getOffset(),
+    );
+
+    if ($drequest->getSymbolicCommit()) {
       $is_commit = true;
-      $params['commit'] = $drequest->getRawCommit();
+      $params['commit'] = $drequest->getSymbolicCommit();
     } else {
       $is_commit = false;
     }
 
-    $tags = array();
-    try {
-      $conduit_result = $this->callConduitWithDiffusionRequest(
-        'diffusion.tagsquery',
-        $params);
-      $tags = DiffusionRepositoryTag::newFromConduit($conduit_result);
-    } catch (ConduitException $ex) {
-      if ($ex->getMessage() != 'ERR-UNSUPPORTED-VCS') {
-        throw $ex;
-      }
+    switch ($repository->getVersionControlSystem()) {
+      case PhabricatorRepositoryType::REPOSITORY_TYPE_SVN:
+        $tags = array();
+        break;
+      default:
+        $conduit_result = $this->callConduitWithDiffusionRequest(
+          'diffusion.tagsquery',
+          $params);
+        $tags = DiffusionRepositoryTag::newFromConduit($conduit_result);
+        break;
     }
     $tags = $pager->sliceResults($tags);
 
@@ -65,10 +66,9 @@ final class DiffusionTagListController extends DiffusionController {
       $handles = $this->loadViewerHandles($phids);
       $view->setHandles($handles);
 
-      $panel = id(new AphrontPanelView())
-        ->setNoBackground(true)
-        ->appendChild($view)
-        ->appendChild($pager);
+      $panel = id(new PHUIObjectBoxView())
+        ->setHeaderText(pht('Tags'))
+        ->appendChild($view);
 
       $content = $panel;
     }
@@ -76,18 +76,19 @@ final class DiffusionTagListController extends DiffusionController {
     $crumbs = $this->buildCrumbs(
       array(
         'tags' => true,
-        'commit' => $drequest->getRawCommit(),
+        'commit' => $drequest->getSymbolicCommit(),
       ));
 
     return $this->buildApplicationPage(
       array(
         $crumbs,
         $content,
+        $pager,
       ),
       array(
         'title' => array(
           pht('Tags'),
-          $repository->getCallsign().' Repository',
+          pht('%s Repository', $repository->getCallsign()),
         ),
       ));
   }

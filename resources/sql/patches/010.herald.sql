@@ -1,5 +1,3 @@
-
-
 CREATE TABLE {$NAMESPACE}_herald.herald_action (
   id int unsigned not null auto_increment primary key,
   ruleID int unsigned not null,
@@ -9,7 +7,7 @@ CREATE TABLE {$NAMESPACE}_herald.herald_action (
 
 CREATE TABLE {$NAMESPACE}_herald.herald_rule (
   id int unsigned not null auto_increment primary key,
-  name varchar(255) not null,
+  name varchar(255) COLLATE `binary` not null,
   authorPHID varchar(64) binary not null,
   contentType varchar(255) not null,
   mustMatchAll bool not null,

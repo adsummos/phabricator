@@ -13,7 +13,7 @@ JX.behavior('line-chart', function(config) {
   var mx = 60;
   var my = 30;
 
-  var r = Raphael(p.x, p.y, d.x, d.y);
+  var r = new Raphael(h, d.x, d.y);
 
   var l = r.linechart(
     mx, my,
@@ -22,10 +22,10 @@ JX.behavior('line-chart', function(config) {
     config.y,
     {
       nostroke: false,
-      axis: "0 0 1 1",
+      axis: '0 0 1 1',
       shade: true,
       gutter: 1,
-      colors: config.colors || ['#d06']
+      colors: config.colors || ['#2980b9']
     });
 
   function format(value, type) {
@@ -49,7 +49,7 @@ JX.behavior('line-chart', function(config) {
       text[k].attr({text: ''});
     } else {
       var cur = text[k].attr('text');
-      str = format(cur, config.xformat);
+      var str = format(cur, config.xformat);
       text[k].attr({text: str});
     }
   }
@@ -72,7 +72,7 @@ JX.behavior('line-chart', function(config) {
       var tag = r.tag(
         this.x,
         this.y[yy],
-        [xvalue, yvalue].join("\n"),
+        [xvalue, yvalue].join('\n'),
         180,
         24);
       tag
@@ -86,4 +86,3 @@ JX.behavior('line-chart', function(config) {
   });
 
 });
-

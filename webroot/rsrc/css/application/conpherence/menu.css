@@ -11,10 +11,14 @@
   background: #fff;
 }
 
+.page-has-warning .conpherence-layout {
+  top: 76px;
+}
+
 .conpherence-layout .conpherence-no-threads {
   text-align: center;
   position: fixed;
-  left: 280px;
+  left: 240px;
   right: 241px;
   top: 76px;
   bottom: 0px;
@@ -39,11 +43,37 @@
   overflow-y: auto;
   top: 0;
   bottom: 0;
+  background: #dbdde0;
+  border-right: 1px solid {$hovergrey}
 }
 
-.device-desktop .conpherence-layout .conpherence-menu-pane,
-.device-desktop .conpherence-layout .phabricator-nav-column-background {
-  width: 280px;
+.conpherence-menu-pane .phui-list-item-view.hidden {
+  display: none;
+}
+
+.conpherence-menu-pane.phabricator-side-menu .phui-list-item-type-label {
+  padding: 10px 0 9px 8px;
+}
+
+.conpherence-menu-pane .conpherence-room-list-header
+.phui-icon-view {
+  font-weight: bold;
+  float: right;
+  text-transform: none;
+  margin: 0px 8px 0px 0px;
+}
+
+.conpherence-menu-pane .conpherence-room-list-header
+.phui-icon-view:hover {
+  color: {$sky};
+}
+
+.conpherence-menu-pane .conpherence-message-list-header {
+  margin-top: 12px;
+}
+
+.device-desktop .conpherence-layout .conpherence-menu-pane {
+  width: 240px;
 }
 
 .device .conpherence-menu-pane {
@@ -60,7 +90,6 @@
 
 .conpherence-layout .phabricator-nav-column-background {
   display: block;
-  width: 100%;
 }
 
 .device .phabricator-nav-column-background {
@@ -73,7 +102,7 @@
 }
 
 .device-desktop .conpherence-content-pane {
-  margin-left: 280px;
+  margin-left: 241px;
 }
 
 .conpherence-content-pane {
@@ -89,20 +118,25 @@
 
 .conpherence-menu .conpherence-menu-item-view {
   display: block;
-  height: 55px;
-  width: 100%;
+  height: 36px;
   overflow: hidden;
   position: relative;
   text-decoration: none;
-  border-top: solid 1px #3B3D3E;
-  border-bottom: solid 1px #1C1F21;
-  border-right: 0;
-  border-left: 2px solid transparent;
+  border-left: 3px solid transparent;
 }
 
 .conpherence-menu .conpherence-selected {
-  background: rgba(0, 0, 0, .6);
-  border-left: 2px solid #66CCFF;
+  background: {$hovergrey};
+  border-left: 3px solid {$sky};
+}
+
+.conpherence-menu .phui-list-item-type-link .phui-list-item-href {
+  padding: 8px 0 8px 8px;
+}
+
+.device-desktop .conpherence-menu
+ .conpherence-selected.conpherence-menu-item-view:hover {
+  background-color: {$hoverselectedgrey};
 }
 
 .conpherence-menu .loading {
@@ -110,55 +144,48 @@
 }
 
 .device-desktop .conpherence-menu .conpherence-menu-item-view:hover {
-  background-image: url('/rsrc/image/texture/dark-menu-hover.png');
+  background-color: {$hovergrey};
 }
 
 .conpherence-menu .conpherence-menu-item-view .conpherence-menu-item-image {
-  top: 6px;
+  top: 4px;
   left: 6px;
   display: block;
   position: absolute;
-  width: 35px;
-  height: 35px;
-  background-size: 35px;
-  border: 4px solid rgb(29, 32, 34);
-  border-radius: 3px;
+  width: 24px;
+  height: 24px;
+  background-size: 24px;
+  border: 2px solid #fff;
 }
 
 .conpherence-menu .conpherence-menu-item-view .conpherence-menu-item-title {
   display: block;
-  margin-top: 12px;
-  margin-left: 58px;
+  margin-top: 9px;
+  margin-left: 40px;
   text-align: left;
   font-weight: bold;
   font-size: 13px;
-  color: #ffffff;
-  text-shadow: 0px 1px 1px #000000;
+  color: {$darkbluetext};
+  text-shadow: 0px 1px 1px #fff;
   overflow: hidden;
-  width: 140px;
+  width: 175px;
   text-overflow: ellipsis;
 }
 
 .conpherence-menu .conpherence-menu-item-view .conpherence-menu-item-subtitle {
-  display: block;
-  color: #a1a5a9;
-  font-size: 11px;
-  margin-top: 2px;
-  margin-left: 58px;
-  font-style: italic;
+  display: none;
 }
 
 .conpherence-menu .conpherence-menu-item-view
 .conpherence-menu-item-unread-count {
   position: absolute;
-  left: 35px;
-  top: 3px;
-  background: {$red};
-  border-radius: 10px;
-  color: #FFF;
+  right: 4px;
+  top: 10px;
+  background: {$blue};
+  border-radius: 2px;
+  color: #fff;
   font-weight: bold;
-  padding: 1px 5px 2px;
-  border: 1px solid #333;
+  padding: 0 5px 1px;
   font-size: 11px;
 }
 
@@ -171,15 +198,17 @@
   position: absolute;
   top: 15px;
   right: 16px;
-  color: #a1a5a9;
+  color: {$bluetext};
   font-size: 11px;
 }
 
+.conpherence-menu-item-header {
+  font-weight: bold;
+  text-transform: uppercase;
+  color: {$bluetext};
+}
+
 .no-conpherences-menu-item {
-  color: #a1a5a9;
-  border-top: solid 1px #3B3D3E;
-  padding: 20px 0;
-  margin: 0px auto;
-  width: 280px;
-  text-align: center;
+  color: {$bluetext};
+  padding: 4px 12px;
 }

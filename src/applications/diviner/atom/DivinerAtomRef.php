@@ -1,6 +1,6 @@
 <?php
 
-final class DivinerAtomRef {
+final class DivinerAtomRef extends Phobject {
 
   private $book;
   private $context;
@@ -43,10 +43,12 @@ final class DivinerAtomRef {
 
   public function setName($name) {
     $normal_name = self::normalizeString($name);
-    if (preg_match('/^@[0-9]+$/', $normal_name)) {
+    if (preg_match('/^@\d+\z/', $normal_name)) {
       throw new Exception(
-        "Atom names must not be in the form '/@\d+/'. This pattern is ".
-        "reserved for disambiguating atoms with similar names.");
+        pht(
+          "Atom names must not be in the form '%s'. This pattern is ".
+          "reserved for disambiguating atoms with similar names.",
+          '/@\d+/'));
     }
     $this->name = $normal_name;
     return $this;
@@ -109,6 +111,10 @@ final class DivinerAtomRef {
     return $this->title;
   }
 
+  public function getTitleSlug() {
+    return self::normalizeTitleString($this->getTitle());
+  }
+
   public function toDictionary() {
     return array(
       'book'    => $this->getBook(),
@@ -116,8 +122,8 @@ final class DivinerAtomRef {
       'type'    => $this->getType(),
       'name'    => $this->getName(),
       'group'   => $this->getGroup(),
-      'index'   => $this->getIndex(),
       'summary' => $this->getSummary(),
+      'index'   => $this->getIndex(),
       'title'   => $this->getTitle(),
     );
   }
@@ -135,45 +141,44 @@ final class DivinerAtomRef {
   }
 
   public static function newFromDictionary(array $dict) {
-    $obj = new DivinerAtomRef();
-    $obj->setBook(idx($dict, 'book'));
-    $obj->setContext(idx($dict, 'context'));
-    $obj->setType(idx($dict, 'type'));
-    $obj->setName(idx($dict, 'name'));
-    $obj->group = idx($dict, 'group');
-    $obj->index = idx($dict, 'index');
-    $obj->summary = idx($dict, 'summary');
-    $obj->title = idx($dict, 'title');
-    return $obj;
+    return id(new DivinerAtomRef())
+      ->setBook(idx($dict, 'book'))
+      ->setContext(idx($dict, 'context'))
+      ->setType(idx($dict, 'type'))
+      ->setName(idx($dict, 'name'))
+      ->setGroup(idx($dict, 'group'))
+      ->setSummary(idx($dict, 'summary'))
+      ->setIndex(idx($dict, 'index'))
+      ->setTitle(idx($dict, 'title'));
   }
 
   public static function normalizeString($str) {
     // These characters create problems on the filesystem or in URIs. Replace
-    // them with non-problematic appoximations (instead of simply removing them)
-    // to keep the URIs fairly useful and avoid unnecessary collisions. These
-    // approximations are selected based on some domain knowledge of common
-    // languages: where a character is used as a delimiter, it is more helpful
-    // to replace it with a "." or a ":" or similar, while it's better if
-    // operator overloads read as, e.g., "operator_div".
+    // them with non-problematic approximations (instead of simply removing
+    // them) to keep the URIs fairly useful and avoid unnecessary collisions.
+    // These approximations are selected based on some domain knowledge of
+    // common languages: where a character is used as a delimiter, it is more
+    // helpful to replace it with a "." or a ":" or similar, while it's better
+    // if operator overloads read as, e.g., "operator_div".
 
     $map = array(
       // Hopefully not used anywhere by anything.
-      '#'   => '.',
+      '#' => '.',
 
       // Used in Ruby methods.
-      '?'   => 'Q',
+      '?' => 'Q',
 
       // Used in PHP namespaces.
-      '\\'  => '.',
+      '\\' => '.',
 
       // Used in "operator +" in C++.
-      '+'   => 'plus',
+      '+' => 'plus',
 
       // Used in "operator %" in C++.
-      '%'   => 'mod',
+      '%' => 'mod',
 
       // Used in "operator /" in C++.
-      '/'   => 'div',
+      '/' => 'div',
     );
     $str = str_replace(array_keys($map), array_values($map), $str);
 
@@ -185,12 +190,21 @@ final class DivinerAtomRef {
 
     // Replace specific problematic names with alternative names.
     $alternates = array(
-      '.'   => 'dot',
-      '..'  => 'dotdot',
-      ''    => 'null',
+      '.'  => 'dot',
+      '..' => 'dotdot',
+      ''   => 'null',
     );
 
     return idx($alternates, $str, $str);
+  }
+
+  public static function normalizeTitleString($str) {
+    // Remove colons from titles. This is mostly to accommodate legacy rules
+    // from the old Diviner, which generated a significant number of article
+    // URIs without colons present in the titles.
+    $str = str_replace(':', '', $str);
+    $str = self::normalizeString($str);
+    return phutil_utf8_strtolower($str);
   }
 
 }

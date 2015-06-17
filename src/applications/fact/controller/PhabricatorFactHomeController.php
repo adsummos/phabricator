@@ -2,6 +2,10 @@
 
 final class PhabricatorFactHomeController extends PhabricatorFactController {
 
+  public function shouldAllowPublic() {
+    return true;
+  }
+
   public function processRequest() {
     $request = $this->getRequest();
     $user = $request->getUser();
@@ -38,8 +42,8 @@ final class PhabricatorFactHomeController extends PhabricatorFactController {
     $table = new AphrontTableView($rows);
     $table->setHeaders(
       array(
-        'Fact',
-        'Value',
+        pht('Fact'),
+        pht('Value'),
       ));
     $table->setColumnClasses(
       array(
@@ -47,19 +51,23 @@ final class PhabricatorFactHomeController extends PhabricatorFactController {
         'n',
       ));
 
-    $panel = new AphrontPanelView();
-    $panel->setHeader('Facts!');
+    $panel = new PHUIObjectBoxView();
+    $panel->setHeaderText(pht('Facts'));
     $panel->appendChild($table);
 
     $chart_form = $this->buildChartForm();
 
-    return $this->buildStandardPageResponse(
+    $crumbs = $this->buildApplicationCrumbs();
+    $crumbs->addTextCrumb(pht('Home'));
+
+    return $this->buildApplicationPage(
       array(
+        $crumbs,
         $chart_form,
         $panel,
       ),
       array(
-        'title' => 'Facts!',
+        'title' => pht('Facts'),
       ));
   }
 
@@ -88,8 +96,8 @@ final class PhabricatorFactHomeController extends PhabricatorFactController {
     }
 
     if (!$options) {
-      return id(new AphrontErrorView())
-        ->setSeverity(AphrontErrorView::SEVERITY_NOTICE)
+      return id(new PHUIInfoView())
+        ->setSeverity(PHUIInfoView::SEVERITY_NODATA)
         ->setTitle(pht('No Chartable Facts'))
         ->appendChild(phutil_tag(
           'p',
@@ -101,17 +109,16 @@ final class PhabricatorFactHomeController extends PhabricatorFactController {
       ->setUser($user)
       ->appendChild(
         id(new AphrontFormSelectControl())
-          ->setLabel('Y-Axis')
+          ->setLabel(pht('Y-Axis'))
           ->setName('y1')
           ->setOptions($options))
       ->appendChild(
         id(new AphrontFormSubmitControl())
-          ->setValue('Plot Chart'));
+          ->setValue(pht('Plot Chart')));
 
-    $panel = new AphrontPanelView();
-    $panel->appendChild($form);
-    $panel->setWidth(AphrontPanelView::WIDTH_FORM);
-    $panel->setHeader('Plot Chart');
+    $panel = new PHUIObjectBoxView();
+    $panel->setForm($form);
+    $panel->setHeaderText(pht('Plot Chart'));
 
     return $panel;
   }

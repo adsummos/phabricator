@@ -4,13 +4,14 @@ final class PhabricatorDashboardPanelTransaction
   extends PhabricatorApplicationTransaction {
 
   const TYPE_NAME = 'dashpanel:name';
+  const TYPE_ARCHIVE = 'dashboard:archive';
 
   public function getApplicationName() {
     return 'dashboard';
   }
 
   public function getApplicationTransactionType() {
-    return PhabricatorDashboardPHIDTypePanel::TYPECONST;
+    return PhabricatorDashboardPanelPHIDType::TYPECONST;
   }
 
   public function getTitle() {
@@ -36,12 +37,22 @@ final class PhabricatorDashboardPanelTransaction
             $old,
             $new);
         }
+      case self::TYPE_ARCHIVE:
+        if ($new) {
+          return pht(
+            '%s archived this panel.',
+            $author_link);
+        } else {
+          return pht(
+            '%s activated this panel.',
+            $author_link);
+        }
     }
 
     return parent::getTitle();
   }
 
-  public function getTitleForFeed(PhabricatorFeedStory $story) {
+  public function getTitleForFeed() {
     $author_phid = $this->getAuthorPHID();
     $object_phid = $this->getObjectPHID();
 
@@ -67,9 +78,21 @@ final class PhabricatorDashboardPanelTransaction
             $old,
             $new);
         }
+      case self::TYPE_ARCHIVE:
+        if ($new) {
+          return pht(
+            '%s archived dashboard panel %s.',
+            $author_link,
+            $object_link);
+        } else {
+          return pht(
+            '%s activated dashboard panel %s.',
+            $author_link,
+            $object_link);
+        }
     }
 
-    return parent::getTitleForFeed($story);
+    return parent::getTitleForFeed();
   }
 
   public function getColor() {

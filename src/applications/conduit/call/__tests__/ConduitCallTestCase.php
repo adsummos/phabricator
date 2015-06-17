@@ -4,15 +4,13 @@ final class ConduitCallTestCase extends PhabricatorTestCase {
 
   public function testConduitPing() {
     $call = new ConduitCall('conduit.ping', array());
-    $call->setForceLocal(true);
     $result = $call->execute();
 
-    $this->assertEqual(false, empty($result));
+    $this->assertFalse(empty($result));
   }
 
   public function testConduitAuth() {
     $call = new ConduitCall('user.whoami', array(), true);
-    $call->setForceLocal(true);
 
     $caught = null;
     try {
@@ -21,9 +19,10 @@ final class ConduitCallTestCase extends PhabricatorTestCase {
       $caught = $ex;
     }
 
-    $this->assertEqual(
-      true,
+    $this->assertTrue(
       ($caught instanceof ConduitException),
-      "user.whoami should require authentication");
+      pht(
+        '%s should require authentication.',
+        'user.whoami'));
   }
 }

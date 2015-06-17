@@ -31,7 +31,12 @@ final class PhabricatorApplicationTransactionCommentHistoryController
       return new Aphront404Response();
     }
 
-    $comments = id(new PhabricatorApplicationTransactionCommentQuery())
+    if ($xaction->getComment()->getIsRemoved()) {
+      // You can't view history of a transaction with a removed comment.
+      return new Aphront400Response();
+    }
+
+    $comments = id(new PhabricatorApplicationTransactionTemplatedCommentQuery())
       ->setViewer($user)
       ->setTemplate($xaction->getApplicationTransactionCommentObject())
       ->withTransactionPHIDs(array($xaction->getPHID()))
@@ -63,11 +68,13 @@ final class PhabricatorApplicationTransactionCommentHistoryController
       ->setUser($user)
       ->setObjectPHID($obj_phid)
       ->setTransactions($xactions)
-      ->setShowEditActions(false);
+      ->setShowEditActions(false)
+      ->setHideCommentOptions(true);
 
     $dialog = id(new AphrontDialogView())
       ->setUser($user)
       ->setWidth(AphrontDialogView::WIDTH_FULL)
+      ->setFlush(true)
       ->setTitle(pht('Comment History'));
 
     $dialog->appendChild($view);

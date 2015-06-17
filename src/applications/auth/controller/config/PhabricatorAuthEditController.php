@@ -3,19 +3,14 @@
 final class PhabricatorAuthEditController
   extends PhabricatorAuthProviderConfigController {
 
-  private $providerClass;
-  private $configID;
-
-  public function willProcessRequest(array $data) {
-    $this->providerClass = idx($data, 'className');
-    $this->configID = idx($data, 'id');
-  }
-
-  public function processRequest() {
-    $request = $this->getRequest();
+  public function handleRequest(AphrontRequest $request) {
+    $this->requireApplicationCapability(
+      AuthManageProvidersCapability::CAPABILITY);
     $viewer = $request->getUser();
+    $provider_class = $request->getURIData('className');
+    $config_id = $request->getURIData('id');
 
-    if ($this->configID) {
+    if ($config_id) {
       $config = id(new PhabricatorAuthProviderConfigQuery())
         ->setViewer($viewer)
         ->requireCapabilities(
@@ -23,7 +18,7 @@ final class PhabricatorAuthEditController
             PhabricatorPolicyCapability::CAN_VIEW,
             PhabricatorPolicyCapability::CAN_EDIT,
           ))
-        ->withIDs(array($this->configID))
+        ->withIDs(array($config_id))
         ->executeOne();
       if (!$config) {
         return new Aphront404Response();
@@ -36,9 +31,11 @@ final class PhabricatorAuthEditController
 
       $is_new = false;
     } else {
+      $provider = null;
+
       $providers = PhabricatorAuthProvider::getAllBaseProviders();
       foreach ($providers as $candidate_provider) {
-        if (get_class($candidate_provider) === $this->providerClass) {
+        if (get_class($candidate_provider) === $provider_class) {
           $provider = $candidate_provider;
           break;
         }
@@ -85,6 +82,8 @@ final class PhabricatorAuthEditController
     $v_registration = $config->getShouldAllowRegistration();
     $v_link = $config->getShouldAllowLink();
     $v_unlink = $config->getShouldAllowUnlink();
+    $v_trust_email = $config->getShouldTrustEmails();
+    $v_auto_login = $config->getShouldAutoLogin();
 
     if ($request->isFormPost()) {
 
@@ -120,6 +119,18 @@ final class PhabricatorAuthEditController
             PhabricatorAuthProviderConfigTransaction::TYPE_UNLINK)
           ->setNewValue($request->getInt('allowUnlink', 0));
 
+        $xactions[] = id(new PhabricatorAuthProviderConfigTransaction())
+          ->setTransactionType(
+            PhabricatorAuthProviderConfigTransaction::TYPE_TRUST_EMAILS)
+          ->setNewValue($request->getInt('trustEmails', 0));
+
+        if ($provider instanceof PhabricatorPhabricatorAuthProvider) {
+          $xactions[] = id(new PhabricatorAuthProviderConfigTransaction())
+            ->setTransactionType(
+              PhabricatorAuthProviderConfigTransaction::TYPE_AUTO_LOGIN)
+            ->setNewValue($request->getInt('autoLogin', 0));
+        }
+
         foreach ($properties as $key => $value) {
           $xactions[] = id(new PhabricatorAuthProviderConfigTransaction())
             ->setTransactionType(
@@ -138,7 +149,6 @@ final class PhabricatorAuthEditController
           ->setContinueOnNoEffect(true)
           ->applyTransactions($config, $xactions);
 
-
         if ($provider->hasSetupStep() && $is_new) {
           $id = $config->getID();
           $next_uri = $this->getApplicationURI('config/edit/'.$id.'/');
@@ -154,7 +164,11 @@ final class PhabricatorAuthEditController
     }
 
     if ($is_new) {
-      $button = pht('Add Provider');
+      if ($provider->hasSetupStep()) {
+        $button = pht('Next Step');
+      } else {
+        $button = pht('Add Provider');
+      }
       $crumb = pht('Add Provider');
       $title = pht('Add Authentication Provider');
       $cancel_uri = $this->getApplicationURI('/config/new/');
@@ -171,8 +185,8 @@ final class PhabricatorAuthEditController
     $email_domains = PhabricatorEnv::getEnvConfig($config_name);
     if ($email_domains) {
       $registration_warning = pht(
-        "Users will only be able to register with a verified email address ".
-        "at one of the configured [[ %s | %s ]] domains: **%s**",
+        'Users will only be able to register with a verified email address '.
+        'at one of the configured [[ %s | %s ]] domains: **%s**',
         $config_href,
         $config_name,
         implode(', ', $email_domains));
@@ -211,6 +225,19 @@ final class PhabricatorAuthEditController
         'Allow users to unlink account credentials for this provider from '.
         'existing Phabricator accounts. If you disable this, Phabricator '.
         'accounts will be permanently bound to provider accounts.'));
+
+    $str_trusted_email = hsprintf(
+      '<strong>%s:</strong> %s',
+      pht('Trust Email Addresses'),
+      pht(
+        'Phabricator will skip email verification for accounts registered '.
+        'through this provider.'));
+    $str_auto_login = hsprintf(
+      '<strong>%s:</strong> %s',
+      pht('Allow Auto Login'),
+      pht(
+        'Phabricator will automatically login with this provider if it is '.
+        'the only available provider.'));
 
     $status_tag = id(new PHUITagView())
       ->setType(PHUITagView::TYPE_STATE);
@@ -262,6 +289,26 @@ final class PhabricatorAuthEditController
             $str_unlink,
             $v_unlink));
 
+    if ($provider->shouldAllowEmailTrustConfiguration()) {
+      $form->appendChild(
+        id(new AphrontFormCheckboxControl())
+          ->addCheckbox(
+            'trustEmails',
+            1,
+            $str_trusted_email,
+            $v_trust_email));
+    }
+
+    if ($provider instanceof PhabricatorPhabricatorAuthProvider) {
+      $form->appendChild(
+        id(new AphrontFormCheckboxControl())
+          ->addCheckbox(
+            'autoLogin',
+            1,
+            $str_auto_login,
+            $v_auto_login));
+    }
+
     $provider->extendEditForm($request, $form, $properties, $issues);
 
     $form
@@ -276,24 +323,20 @@ final class PhabricatorAuthEditController
       $form->appendRemarkupInstructions($help);
     }
 
+    $footer = $provider->renderConfigurationFooter();
+
     $crumbs = $this->buildApplicationCrumbs();
     $crumbs->addTextCrumb($crumb);
 
-    $xaction_view = null;
+    $timeline = null;
     if (!$is_new) {
-      $xactions = id(new PhabricatorAuthProviderConfigTransactionQuery())
-        ->withObjectPHIDs(array($config->getPHID()))
-        ->setViewer($viewer)
-        ->execute();
-
+      $timeline = $this->buildTransactionTimeline(
+        $config,
+        new PhabricatorAuthProviderConfigTransactionQuery());
+      $xactions = $timeline->getTransactions();
       foreach ($xactions as $xaction) {
         $xaction->setProvider($provider);
       }
-
-      $xaction_view = id(new PhabricatorApplicationTransactionView())
-        ->setUser($viewer)
-        ->setObjectPHID($config->getPHID())
-        ->setTransactions($xactions);
     }
 
     $form_box = id(new PHUIObjectBoxView())
@@ -305,11 +348,11 @@ final class PhabricatorAuthEditController
       array(
         $crumbs,
         $form_box,
-        $xaction_view,
+        $footer,
+        $timeline,
       ),
       array(
         'title' => $title,
-        'device' => true,
       ));
   }
 

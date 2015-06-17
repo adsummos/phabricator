@@ -30,6 +30,9 @@ final class DiffusionCommitHookEngine extends Phobject {
   private $gitCommits = array();
 
   private $heraldViewerProjects;
+  private $rejectCode = PhabricatorRepositoryPushLog::REJECT_BROKEN;
+  private $rejectDetails;
+  private $emailPHIDs = array();
 
 
 /* -(  Config  )------------------------------------------------------------- */
@@ -60,14 +63,6 @@ final class DiffusionCommitHookEngine extends Phobject {
     $remote_address = max(0, ip2long($remote_address));
     $remote_address = nonempty($remote_address, null);
     return $remote_address;
-  }
-
-  private function getTransactionKey() {
-    if (!$this->transactionKey) {
-      $entropy = Filesystem::readRandomBytes(64);
-      $this->transactionKey = PhabricatorHash::digestForIndex($entropy);
-    }
-    return $this->transactionKey;
   }
 
   public function setSubversionTransactionInfo($transaction, $repository) {
@@ -137,10 +132,7 @@ final class DiffusionCommitHookEngine extends Phobject {
       } catch (DiffusionCommitHookRejectException $ex) {
         // If we're rejecting dangerous changes, flag everything that we've
         // seen as rejected so it's clear that none of it was accepted.
-        foreach ($all_updates as $update) {
-          $update->setRejectCode(
-            PhabricatorRepositoryPushLog::REJECT_DANGEROUS);
-        }
+        $this->rejectCode = PhabricatorRepositoryPushLog::REJECT_DANGEROUS;
         throw $ex;
       }
 
@@ -156,9 +148,7 @@ final class DiffusionCommitHookEngine extends Phobject {
 
       // If we make it this far, we're accepting these changes. Mark all the
       // logs as accepted.
-      foreach ($all_updates as $update) {
-        $update->setRejectCode(PhabricatorRepositoryPushLog::REJECT_ACCEPT);
-      }
+      $this->rejectCode = PhabricatorRepositoryPushLog::REJECT_ACCEPT;
     } catch (Exception $ex) {
       // We'll throw this again in a minute, but we want to save all the logs
       // first.
@@ -166,12 +156,58 @@ final class DiffusionCommitHookEngine extends Phobject {
     }
 
     // Save all the logs no matter what the outcome was.
-    foreach ($all_updates as $update) {
-      $update->save();
-    }
+    $event = $this->newPushEvent();
+
+    $event->setRejectCode($this->rejectCode);
+    $event->setRejectDetails($this->rejectDetails);
+
+    $event->openTransaction();
+      $event->save();
+      foreach ($all_updates as $update) {
+        $update->setPushEventPHID($event->getPHID());
+        $update->save();
+      }
+    $event->saveTransaction();
 
     if ($caught) {
       throw $caught;
+    }
+
+    // If this went through cleanly, detect pushes which are actually imports
+    // of an existing repository rather than an addition of new commits. If
+    // this push is importing a bunch of stuff, set the importing flag on
+    // the repository. It will be cleared once we fully process everything.
+
+    if ($this->isInitialImport($all_updates)) {
+      $repository = $this->getRepository();
+
+      $repository->openTransaction();
+        $repository->beginReadLocking();
+          $repository = $repository->reload();
+          $repository->setDetail('importing', true);
+          $repository->save();
+        $repository->endReadLocking();
+      $repository->saveTransaction();
+    }
+
+    if ($this->emailPHIDs) {
+      // If Herald rules triggered email to users, queue a worker to send the
+      // mail. We do this out-of-process so that we block pushes as briefly
+      // as possible.
+
+      // (We do need to pull some commit info here because the commit objects
+      // may not exist yet when this worker runs, which could be immediately.)
+
+      PhabricatorWorker::scheduleTask(
+        'PhabricatorRepositoryPushMailWorker',
+        array(
+          'eventPHID' => $event->getPHID(),
+          'emailPHIDs' => array_values($this->emailPHIDs),
+          'info' => $this->loadCommitInfoForWorker($all_updates),
+        ),
+        array(
+          'priority' => PhabricatorWorker::PRIORITY_ALERTS,
+        ));
     }
 
     return 0;
@@ -284,6 +320,11 @@ final class DiffusionCommitHookEngine extends Phobject {
       $engine->applyEffects($effects, $adapter, $rules);
       $xscript = $engine->getTranscript();
 
+      // Store any PHIDs we want to send email to for later.
+      foreach ($adapter->getEmailPHIDs() as $email_phid) {
+        $this->emailPHIDs[$email_phid] = $email_phid;
+      }
+
       if ($blocking_effect === null) {
         foreach ($effects as $effect) {
           if ($effect->getAction() == HeraldAdapter::ACTION_BLOCK) {
@@ -296,22 +337,14 @@ final class DiffusionCommitHookEngine extends Phobject {
     }
 
     if ($blocking_effect) {
-      foreach ($all_updates as $update) {
-        $update->setRejectCode(PhabricatorRepositoryPushLog::REJECT_HERALD);
-        $update->setRejectDetails($blocking_effect->getRulePHID());
-      }
+      $rule = $blocking_effect->getRule();
+
+      $this->rejectCode = PhabricatorRepositoryPushLog::REJECT_HERALD;
+      $this->rejectDetails = $rule->getPHID();
 
       $message = $blocking_effect->getTarget();
       if (!strlen($message)) {
         $message = pht('(None.)');
-      }
-
-      $rules = mpull($rules, null, 'getID');
-      $rule = idx($rules, $effect->getRuleID());
-      if ($rule && strlen($rule->getName())) {
-        $rule_name = $rule->getName();
-      } else {
-        $rule_name = pht('Unnamed Herald Rule');
       }
 
       $blocked_ref_name = coalesce(
@@ -325,9 +358,9 @@ final class DiffusionCommitHookEngine extends Phobject {
           "Change: %s\n".
           "  Rule: %s\n".
           "Reason: %s",
-          'H'.$blocking_effect->getRuleID(),
+          $rule->getMonogram(),
           $blocked_name,
-          $rule_name,
+          $rule->getName(),
           $message));
     }
   }
@@ -423,7 +456,9 @@ final class DiffusionCommitHookEngine extends Phobject {
         $ref_new);
     }
 
-    foreach (Futures($futures)->limit(8) as $key => $future) {
+    $futures = id(new FutureIterator($futures))
+      ->limit(8);
+    foreach ($futures as $key => $future) {
 
       // If 'old' and 'new' have no common ancestors (for example, a force push
       // which completely rewrites a ref), `git merge-base` will exit with
@@ -458,7 +493,12 @@ final class DiffusionCommitHookEngine extends Phobject {
       $ref_flags = 0;
       $dangerous = null;
 
-      if ($ref_old === self::EMPTY_HASH) {
+      if (($ref_old === self::EMPTY_HASH) && ($ref_new === self::EMPTY_HASH)) {
+        // This happens if you try to delete a tag or branch which does not
+        // exist by pushing directly to the ref. Git will warn about it but
+        // allow it. Just call it a delete, without flagging it as dangerous.
+        $ref_flags |= PhabricatorRepositoryPushLog::CHANGEFLAG_DELETE;
+      } else if ($ref_old === self::EMPTY_HASH) {
         $ref_flags |= PhabricatorRepositoryPushLog::CHANGEFLAG_ADD;
       } else if ($ref_new === self::EMPTY_HASH) {
         $ref_flags |= PhabricatorRepositoryPushLog::CHANGEFLAG_DELETE;
@@ -527,7 +567,9 @@ final class DiffusionCommitHookEngine extends Phobject {
     }
 
     $content_updates = array();
-    foreach (Futures($futures)->limit(8) as $key => $future) {
+    $futures = id(new FutureIterator($futures))
+      ->limit(8);
+    foreach ($futures as $key => $future) {
       list($stdout) = $future->resolvex();
 
       if (!strlen(trim($stdout))) {
@@ -591,17 +633,13 @@ final class DiffusionCommitHookEngine extends Phobject {
         if (!$err) {
           // This hook ran OK, but echo its output in case there was something
           // informative.
-          $console->writeOut("%s", $stdout);
-          $console->writeErr("%s", $stderr);
+          $console->writeOut('%s', $stdout);
+          $console->writeErr('%s', $stderr);
           continue;
         }
 
-        // Mark everything as rejected by this hook.
-        foreach ($updates as $update) {
-          $update->setRejectCode(
-            PhabricatorRepositoryPushLog::REJECT_EXTERNAL);
-          $update->setRejectDetails(basename($hook));
-        }
+        $this->rejectCode = PhabricatorRepositoryPushLog::REJECT_EXTERNAL;
+        $this->rejectDetails = basename($hook);
 
         throw new DiffusionCommitHookRejectException(
           pht(
@@ -622,9 +660,19 @@ final class DiffusionCommitHookEngine extends Phobject {
 
     foreach (Filesystem::listDirectory($directory) as $path) {
       $full_path = $directory.DIRECTORY_SEPARATOR.$path;
-      if (is_executable($full_path)) {
-        $executables[] = $full_path;
+      if (!is_executable($full_path)) {
+        // Don't include non-executable files.
+        continue;
       }
+
+      if (basename($full_path) == 'README') {
+        // Don't include README, even if it is marked as executable. It almost
+        // certainly got caught in the crossfire of a sweeping `chmod`, since
+        // users do this with some frequency.
+        continue;
+      }
+
+      $executables[] = $full_path;
     }
 
     return $executables;
@@ -649,7 +697,10 @@ final class DiffusionCommitHookEngine extends Phobject {
   private function findMercurialChangegroupRefUpdates() {
     $hg_node = getenv('HG_NODE');
     if (!$hg_node) {
-      throw new Exception(pht('Expected HG_NODE in environment!'));
+      throw new Exception(
+        pht(
+          'Expected %s in environment!',
+          'HG_NODE'));
     }
 
     // NOTE: We need to make sure this is passed to subprocesses, or they won't
@@ -663,20 +714,20 @@ final class DiffusionCommitHookEngine extends Phobject {
     foreach (array('old', 'new') as $key) {
       $futures[$key] = $repository->getLocalCommandFuture(
         'heads --template %s',
-        '{node}\1{branches}\2');
+        '{node}\1{branch}\2');
     }
     // Wipe HG_PENDING out of the old environment so we see the pre-commit
     // state of the repository.
     $futures['old']->updateEnv('HG_PENDING', null);
 
     $futures['commits'] = $repository->getLocalCommandFuture(
-      "log --rev %s --rev tip --template %s",
-      hgsprintf('%s', $hg_node),
-      '{node}\1{branches}\2');
+      'log --rev %s --template %s',
+      hgsprintf('%s:%s', $hg_node, 'tip'),
+      '{node}\1{branch}\2');
 
     // Resolve all of the futures now. We don't need the 'commits' future yet,
     // but it simplifies the logic to just get it out of the way.
-    foreach (Futures($futures) as $future) {
+    foreach (new FutureIterator($futures) as $future) {
       $future->resolve();
     }
 
@@ -705,31 +756,29 @@ final class DiffusionCommitHookEngine extends Phobject {
       sort($old_heads);
       sort($new_heads);
 
+      if (!$old_heads && !$new_heads) {
+        // This should never be possible, as it makes no sense. Explode.
+        throw new Exception(
+          pht(
+            'Mercurial repository has no new or old heads for branch "%s" '.
+            'after push. This makes no sense; rejecting change.',
+            $ref));
+      }
+
       if ($old_heads === $new_heads) {
         // No changes to this branch, so skip it.
         continue;
       }
 
-      if (!$new_heads) {
-        if ($old_heads) {
-          // It looks like this push deletes a branch, but that isn't possible
-          // in Mercurial, so something is going wrong here. Bail out.
-          throw new Exception(
-            pht(
-              'Mercurial repository has no new head for branch "%s" after '.
-              'push. This is unexpected; rejecting change.'));
-        } else {
-          // Obviously, this should never be possible either, as it makes
-          // no sense. Explode.
-          throw new Exception(
-            pht(
-              'Mercurial repository has no new or old heads for branch "%s" '.
-              'after push. This makes no sense; rejecting change.'));
-        }
-      }
-
       $stray_heads = array();
-      if (count($old_heads) > 1) {
+
+      if ($old_heads && !$new_heads) {
+        // This is a branch deletion with "--close-branch".
+        $head_map = array();
+        foreach ($old_heads as $old_head) {
+          $head_map[$old_head] = array(self::EMPTY_HASH);
+        }
+      } else if (count($old_heads) > 1) {
         // HORRIBLE: In Mercurial, branches can have multiple heads. If the
         // old branch had multiple heads, we need to figure out which new
         // heads descend from which old heads, so we can tell whether you're
@@ -737,24 +786,40 @@ final class DiffusionCommitHookEngine extends Phobject {
         // repository that's already full of garbage (strongly discouraged but
         // not as inherently dangerous). These cases should be very uncommon.
 
+        // NOTE: We're only looking for heads on the same branch. The old
+        // tip of the branch may be the branchpoint for other branches, but that
+        // is OK.
+
         $dfutures = array();
         foreach ($old_heads as $old_head) {
           $dfutures[$old_head] = $repository->getLocalCommandFuture(
-            'log --rev %s --template %s',
+            'log --branch %s --rev %s --template %s',
+            $ref,
             hgsprintf('(descendants(%s) and head())', $old_head),
             '{node}\1');
         }
 
         $head_map = array();
-        foreach (Futures($dfutures) as $future_head => $dfuture) {
+        foreach (new FutureIterator($dfutures) as $future_head => $dfuture) {
           list($stdout) = $dfuture->resolvex();
-          $head_map[$future_head] = array_filter(explode("\1", $stdout));
+          $descendant_heads = array_filter(explode("\1", $stdout));
+          if ($descendant_heads) {
+            // This old head has at least one descendant in the push.
+            $head_map[$future_head] = $descendant_heads;
+          } else {
+            // This old head has no descendants, so it is being deleted.
+            $head_map[$future_head] = array(self::EMPTY_HASH);
+          }
         }
 
         // Now, find all the new stray heads this push creates, if any. These
         // are new heads which do not descend from the old heads.
         $seen = array_fuse(array_mergev($head_map));
         foreach ($new_heads as $new_head) {
+          if ($new_head === self::EMPTY_HASH) {
+            // If a branch head is being deleted, don't insert it as an add.
+            continue;
+          }
           if (empty($seen[$new_head])) {
             $head_map[self::EMPTY_HASH][] = $new_head;
           }
@@ -779,6 +844,8 @@ final class DiffusionCommitHookEngine extends Phobject {
             $ref_flags |= PhabricatorRepositoryPushLog::CHANGEFLAG_APPEND;
           }
 
+
+          $deletes_existing_head = ($new_head == self::EMPTY_HASH);
           $splits_existing_head = (count($child_heads) > 1);
           $creates_duplicate_head = ($old_head == self::EMPTY_HASH) &&
                                     (count($head_map) > 1);
@@ -813,6 +880,19 @@ final class DiffusionCommitHookEngine extends Phobject {
                 $ref,
                 implode(', ', $readable_child_heads));
             }
+          }
+
+          if ($deletes_existing_head) {
+            // TODO: Somewhere in here we should be setting CHANGEFLAG_REWRITE
+            // if we are also creating at least one other head to replace
+            // this one.
+
+            // NOTE: In Git, this is a dangerous change, but it is not dangerous
+            // in Mercurial. Mercurial branches are version controlled, and
+            // Mercurial does not prompt you for any special flags when pushing
+            // a `--close-branch` commit by default.
+
+            $ref_flags |= PhabricatorRepositoryPushLog::CHANGEFLAG_DELETE;
           }
 
           $ref_update = $this->newPushLog()
@@ -924,15 +1004,8 @@ final class DiffusionCommitHookEngine extends Phobject {
     $commits_lines = array_filter($commits_lines);
     $commit_map = array();
     foreach ($commits_lines as $commit_line) {
-      list($node, $branches_raw) = explode("\1", $commit_line);
-
-      if (!strlen($branches_raw)) {
-        $branches = array('default');
-      } else {
-        $branches = explode(' ', $branches_raw);
-      }
-
-      $commit_map[$node] = $branches;
+      list($node, $branch) = explode("\1", $commit_line);
+      $commit_map[$node] = array($branch);
     }
 
     return $commit_map;
@@ -983,24 +1056,24 @@ final class DiffusionCommitHookEngine extends Phobject {
 
 
   private function newPushLog() {
-    // NOTE: By default, we create these with REJECT_BROKEN as the reject
-    // code. This indicates a broken hook, and covers the case where we
-    // encounter some unexpected exception and consequently reject the changes.
-
     // NOTE: We generate PHIDs up front so the Herald transcripts can pick them
     // up.
     $phid = id(new PhabricatorRepositoryPushLog())->generatePHID();
 
     return PhabricatorRepositoryPushLog::initializeNewLog($this->getViewer())
       ->setPHID($phid)
-      ->attachRepository($this->getRepository())
       ->setRepositoryPHID($this->getRepository()->getPHID())
-      ->setEpoch(time())
+      ->attachRepository($this->getRepository())
+      ->setEpoch(time());
+  }
+
+  private function newPushEvent() {
+    $viewer = $this->getViewer();
+    return PhabricatorRepositoryPushEvent::initializeNewEvent($viewer)
+      ->setRepositoryPHID($this->getRepository()->getPHID())
       ->setRemoteAddress($this->getRemoteAddressForLog())
       ->setRemoteProtocol($this->getRemoteProtocol())
-      ->setTransactionKey($this->getTransactionKey())
-      ->setRejectCode(PhabricatorRepositoryPushLog::REJECT_BROKEN)
-      ->setRejectDetails(null);
+      ->setEpoch(time());
   }
 
   public function loadChangesetsForCommit($identifier) {
@@ -1055,9 +1128,15 @@ final class DiffusionCommitHookEngine extends Phobject {
           $byte_limit));
     }
 
+    if (!strlen($raw_diff)) {
+      // If the commit is actually empty, just return no changesets.
+      return array();
+    }
+
     $parser = new ArcanistDiffParser();
     $changes = $parser->parseDiff($raw_diff);
-    $diff = DifferentialDiff::newFromRawChanges($changes);
+    $diff = DifferentialDiff::newEphemeralFromRawChanges(
+      $changes);
     return $diff->getChangesets();
   }
 
@@ -1093,6 +1172,9 @@ final class DiffusionCommitHookEngine extends Phobject {
       case PhabricatorRepositoryType::REPOSITORY_TYPE_GIT:
         return idx($this->gitCommits, $identifier, array());
       case PhabricatorRepositoryType::REPOSITORY_TYPE_MERCURIAL:
+        // NOTE: This will be "the branch the commit was made to", not
+        // "a list of all branch heads which descend from the commit".
+        // This is consistent with Mercurial, but possibly confusing.
         return idx($this->mercurialCommits, $identifier, array());
       case PhabricatorRepositoryType::REPOSITORY_TYPE_SVN:
         // Subversion doesn't have branches.
@@ -1100,5 +1182,80 @@ final class DiffusionCommitHookEngine extends Phobject {
     }
   }
 
+  private function loadCommitInfoForWorker(array $all_updates) {
+    $type_commit = PhabricatorRepositoryPushLog::REFTYPE_COMMIT;
+
+    $map = array();
+    foreach ($all_updates as $update) {
+      if ($update->getRefType() != $type_commit) {
+        continue;
+      }
+      $map[$update->getRefNew()] = array();
+    }
+
+    foreach ($map as $identifier => $info) {
+      $ref = $this->loadCommitRefForCommit($identifier);
+      $map[$identifier] += array(
+        'summary'  => $ref->getSummary(),
+        'branches' => $this->loadBranches($identifier),
+      );
+    }
+
+    return $map;
+  }
+
+  private function isInitialImport(array $all_updates) {
+    $repository = $this->getRepository();
+
+    $vcs = $repository->getVersionControlSystem();
+    switch ($vcs) {
+      case PhabricatorRepositoryType::REPOSITORY_TYPE_SVN:
+        // There is no meaningful way to import history into Subversion by
+        // pushing.
+        return false;
+      default:
+        break;
+    }
+
+    // Now, apply a heuristic to guess whether this is a normal commit or
+    // an initial import. We guess something is an initial import if:
+    //
+    //   - the repository is currently empty; and
+    //   - it pushes more than 7 commits at once.
+    //
+    // The number "7" is chosen arbitrarily as seeming reasonable. We could
+    // also look at author data (do the commits come from multiple different
+    // authors?) and commit date data (is the oldest commit more than 48 hours
+    // old), but we don't have immediate access to those and this simple
+    // heruistic might be good enough.
+
+    $commit_count = 0;
+    $type_commit = PhabricatorRepositoryPushLog::REFTYPE_COMMIT;
+    foreach ($all_updates as $update) {
+      if ($update->getRefType() != $type_commit) {
+        continue;
+      }
+      $commit_count++;
+    }
+
+    if ($commit_count <= 7) {
+      // If this pushes a very small number of commits, assume it's an
+      // initial commit or stack of a few initial commits.
+      return false;
+    }
+
+    $any_commits = id(new DiffusionCommitQuery())
+      ->setViewer($this->getViewer())
+      ->withRepository($repository)
+      ->setLimit(1)
+      ->execute();
+
+    if ($any_commits) {
+      // If the repository already has commits, this isn't an import.
+      return false;
+    }
+
+    return true;
+  }
 
 }

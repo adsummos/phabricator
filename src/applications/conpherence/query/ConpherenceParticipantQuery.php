@@ -30,11 +30,8 @@
  *
  * For counts of read, un-read, or all conpherences by participant, see
  * @{class:ConpherenceParticipantCountQuery}.
- *
- * @group conpherence
  */
-final class ConpherenceParticipantQuery
-  extends PhabricatorOffsetPagedQuery {
+final class ConpherenceParticipantQuery extends PhabricatorOffsetPagedQuery {
 
   const LIMIT = 100;
   const ORDER_NEWER = 'newer';
@@ -82,7 +79,7 @@ final class ConpherenceParticipantQuery
     return $participants;
   }
 
-  private function buildWhereClause($conn_r) {
+  protected function buildWhereClause(AphrontDatabaseConnection $conn_r) {
     $where = array();
 
     if ($this->participantPHIDs) {
@@ -116,7 +113,6 @@ final class ConpherenceParticipantQuery
   }
 
   private function buildOrderClause(AphrontDatabaseConnection $conn_r) {
-
     $order_word = ($this->order == self::ORDER_OLDER) ? 'DESC' : 'ASC';
     // if these are different direction we won't get as efficient a query
     // see http://dev.mysql.com/doc/refman/5.5/en/order-by-optimization.html

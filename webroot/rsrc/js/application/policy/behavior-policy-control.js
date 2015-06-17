@@ -3,8 +3,9 @@
  * @requires javelin-behavior
  *           javelin-dom
  *           javelin-util
- *           phabricator-dropdown-menu
- *           phabricator-menu-item
+ *           phuix-dropdown-menu
+ *           phuix-action-list-view
+ *           phuix-action-view
  *           javelin-workflow
  * @javelin
  */
@@ -13,20 +14,20 @@ JX.behavior('policy-control', function(config) {
   var input = JX.$(config.inputID);
   var value = config.value;
 
-  var menu = new JX.PhabricatorDropdownMenu(control)
-    .setWidth(260);
-
-  menu.toggleAlignDropdownRight(false);
+  var menu = new JX.PHUIXDropdownMenu(control)
+    .setWidth(260)
+    .setAlign('left');
 
   menu.listen('open', function() {
-    menu.clear();
+    var list = new JX.PHUIXActionListView();
 
     for (var ii = 0; ii < config.groups.length; ii++) {
       var group = config.groups[ii];
 
-      var header = new JX.PhabricatorMenuItem(config.labels[group], JX.bag);
-      header.setDisabled(true);
-      menu.addItem(header);
+      list.addItem(
+        new JX.PHUIXActionView()
+          .setName(config.labels[group])
+          .setLabel(true));
 
       for (var jj = 0; jj < config.order[group].length; jj++) {
         var phid = config.order[group][jj];
@@ -34,7 +35,7 @@ JX.behavior('policy-control', function(config) {
         var onselect;
         if (group == 'custom') {
           onselect = JX.bind(null, function(phid) {
-            var uri = get_custom_uri(phid);
+            var uri = get_custom_uri(phid, config.capability);
 
             new JX.Workflow(uri)
               .setHandler(function(response) {
@@ -52,18 +53,25 @@ JX.behavior('policy-control', function(config) {
           onselect = JX.bind(null, select_policy, phid);
         }
 
-        var item = new JX.PhabricatorMenuItem(
-          render_option(phid, true),
-          onselect);
+        var option = config.options[phid];
+        var item = new JX.PHUIXActionView()
+          .setName(option.name)
+          .setIcon(option.icon + ' darkgreytext')
+          .setHandler(JX.bind(null, function(fn, e) {
+            e.prevent();
+            menu.close();
+            fn();
+          }, onselect));
 
         if (phid == value) {
           item.setSelected(true);
         }
 
-        menu.addItem(item);
+        list.addItem(item);
       }
     }
 
+    menu.setContent(list.getNode());
   });
 
 
@@ -92,11 +100,12 @@ JX.behavior('policy-control', function(config) {
   /**
    * Get the workflow URI to create or edit a policy with a given PHID.
    */
-  var get_custom_uri = function(phid) {
-    var uri = '/policy/edit/';
+  var get_custom_uri = function(phid, capability) {
+    var uri = config.editURI;
     if (phid != config.customPlaceholder) {
       uri += phid + '/';
     }
+    uri += '?capability=' + capability;
     return uri;
   };
 

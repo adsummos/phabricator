@@ -6,9 +6,9 @@ final class DiffusionChangeController extends DiffusionController {
     return true;
   }
 
-  public function processRequest() {
+  protected function processDiffusionRequest(AphrontRequest $request) {
     $drequest = $this->diffusionRequest;
-    $viewer = $this->getRequest()->getUser();
+    $viewer = $request->getUser();
 
     $content = array();
 
@@ -18,9 +18,12 @@ final class DiffusionChangeController extends DiffusionController {
         'commit' => $drequest->getCommit(),
         'path' => $drequest->getPath(),
       ));
-    $drequest->setCommit($data['effectiveCommit']);
+
+    $drequest->updateSymbolicCommit($data['effectiveCommit']);
+
     $raw_changes = ArcanistDiffChange::newFromConduit($data['changes']);
-    $diff = DifferentialDiff::newFromRawChanges($raw_changes);
+    $diff = DifferentialDiff::newEphemeralFromRawChanges(
+      $raw_changes);
     $changesets = $diff->getChangesets();
     $changeset = reset($changesets);
 
@@ -31,7 +34,6 @@ final class DiffusionChangeController extends DiffusionController {
 
     $repository = $drequest->getRepository();
     $callsign = $repository->getCallsign();
-    $commit = $drequest->getRawCommit();
     $changesets = array(
       0 => $changeset,
     );
@@ -42,7 +44,7 @@ final class DiffusionChangeController extends DiffusionController {
     $changeset_view->setVisibleChangesets($changesets);
     $changeset_view->setRenderingReferences(
       array(
-        0 => $drequest->generateURI(array('action' => 'rendering-ref'))
+        0 => $drequest->generateURI(array('action' => 'rendering-ref')),
       ));
 
     $raw_params = array(
@@ -53,14 +55,14 @@ final class DiffusionChangeController extends DiffusionController {
     );
 
     $right_uri = $drequest->generateURI($raw_params);
-    $raw_params['params']['before'] = $drequest->getRawCommit();
+    $raw_params['params']['before'] = $drequest->getStableCommit();
     $left_uri = $drequest->generateURI($raw_params);
     $changeset_view->setRawFileURIs($left_uri, $right_uri);
 
     $changeset_view->setRenderURI('/diffusion/'.$callsign.'/diff/');
     $changeset_view->setWhitespace(
       DifferentialChangesetParser::WHITESPACE_SHOW_ALL);
-    $changeset_view->setUser($this->getRequest()->getUser());
+    $changeset_view->setUser($viewer);
 
     // TODO: This is pretty awkward, unify the CSS between Diffusion and
     // Differential better.
@@ -113,7 +115,7 @@ final class DiffusionChangeController extends DiffusionController {
       id(new PhabricatorActionView())
         ->setName(pht('View History'))
         ->setHref($history_uri)
-        ->setIcon('history'));
+        ->setIcon('fa-clock-o'));
 
     $browse_uri = $drequest->generateURI(
       array(
@@ -124,7 +126,7 @@ final class DiffusionChangeController extends DiffusionController {
       id(new PhabricatorActionView())
         ->setName(pht('Browse Content'))
         ->setHref($browse_uri)
-        ->setIcon('file'));
+        ->setIcon('fa-files-o'));
 
     return $view;
   }
@@ -139,7 +141,7 @@ final class DiffusionChangeController extends DiffusionController {
       ->setUser($viewer)
       ->setActionList($actions);
 
-    $stable_commit = $drequest->getStableCommitName();
+    $stable_commit = $drequest->getStableCommit();
     $callsign = $drequest->getRepository()->getCallsign();
 
     $view->addProperty(

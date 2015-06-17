@@ -7,7 +7,8 @@ abstract class PhabricatorLiskDAO extends LiskDAO {
 
   private static $namespaceStack = array();
 
-  const ATTACHABLE = "<attachable>";
+  const ATTACHABLE = '<attachable>';
+  const CONFIG_APPLICATION_SERIALIZERS = 'phabricator/serializers';
 
 /* -(  Configuring Storage  )------------------------------------------------ */
 
@@ -41,7 +42,7 @@ abstract class PhabricatorLiskDAO extends LiskDAO {
       $namespace = self::getDefaultStorageNamespace();
     }
     if (!strlen($namespace)) {
-      throw new Exception("No storage namespace configured!");
+      throw new Exception(pht('No storage namespace configured!'));
     }
     return $namespace;
   }
@@ -49,7 +50,7 @@ abstract class PhabricatorLiskDAO extends LiskDAO {
   /**
    * @task config
    */
-  public function establishLiveConnection($mode) {
+  protected function establishLiveConnection($mode) {
     $namespace = self::getStorageNamespace();
 
     $conf = PhabricatorEnv::newObjectFromConfig(
@@ -183,7 +184,61 @@ abstract class PhabricatorLiskDAO extends LiskDAO {
     if ($encoding == 'utf8') {
       return $string;
     }
+
+    if (function_exists('mb_detect_encoding')) {
+      if (strlen($encoding)) {
+        $try_encodings = array(
+          $encoding,
+        );
+      } else {
+        // TODO: This is pretty much a guess, and probably needs to be
+        // configurable in the long run.
+        $try_encodings = array(
+          'JIS',
+          'EUC-JP',
+          'SJIS',
+          'ISO-8859-1',
+        );
+      }
+
+      $guess = mb_detect_encoding($string, $try_encodings);
+      if ($guess) {
+        return mb_convert_encoding($string, 'UTF-8', $guess);
+      }
+    }
+
     return phutil_utf8ize($string);
   }
+
+  protected function willReadData(array &$data) {
+    parent::willReadData($data);
+
+    static $custom;
+    if ($custom === null) {
+      $custom = $this->getConfigOption(self::CONFIG_APPLICATION_SERIALIZERS);
+    }
+
+    if ($custom) {
+      foreach ($custom as $key => $serializer) {
+        $data[$key] = $serializer->willReadValue($data[$key]);
+      }
+    }
+  }
+
+  protected function willWriteData(array &$data) {
+    static $custom;
+    if ($custom === null) {
+      $custom = $this->getConfigOption(self::CONFIG_APPLICATION_SERIALIZERS);
+    }
+
+    if ($custom) {
+      foreach ($custom as $key => $serializer) {
+        $data[$key] = $serializer->willWriteValue($data[$key]);
+      }
+    }
+
+    parent::willWriteData($data);
+  }
+
 
 }

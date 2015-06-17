@@ -79,12 +79,15 @@ final class PhabricatorAuthLinkController
 
     $panel_uri = '/settings/panel/external/';
 
-    $request->setCookie(
-      PhabricatorCookies::COOKIE_CLIENTID,
-      Filesystem::readRandomCharacters(16));
+    PhabricatorCookies::setClientIDCookie($request);
 
     switch ($this->action) {
       case 'link':
+        id(new PhabricatorAuthSessionEngine())->requireHighSecuritySession(
+          $viewer,
+          $request,
+          $panel_uri);
+
         $form = $provider->buildLinkForm($this);
         break;
       case 'refresh':
@@ -128,7 +131,6 @@ final class PhabricatorAuthLinkController
       ),
       array(
         'title' => $title,
-        'device' => true,
       ));
   }
 

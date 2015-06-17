@@ -1,14 +1,12 @@
 <?php
 
-/**
- * @group maniphest
- */
 final class ManiphestTaskListView extends ManiphestView {
 
   private $tasks;
   private $handles;
   private $showBatchControls;
   private $showSubpriorityControls;
+  private $noDataString;
 
   public function setTasks(array $tasks) {
     assert_instances_of($tasks, 'ManiphestTask');
@@ -32,12 +30,24 @@ final class ManiphestTaskListView extends ManiphestView {
     return $this;
   }
 
+  public function setNoDataString($text) {
+    $this->noDataString = $text;
+    return $this;
+  }
+
   public function render() {
     $handles = $this->handles;
 
+    require_celerity_resource('maniphest-task-summary-css');
+
     $list = new PHUIObjectItemListView();
-    $list->setCards(true);
     $list->setFlush(true);
+
+    if ($this->noDataString) {
+      $list->setNoDataString($this->noDataString);
+    } else {
+      $list->setNoDataString(pht('No tasks.'));
+    }
 
     $status_map = ManiphestTaskStatus::getTaskStatusMap();
     $color_map = ManiphestTaskPriority::getColorMap();
@@ -47,10 +57,12 @@ final class ManiphestTaskListView extends ManiphestView {
     }
 
     foreach ($this->tasks as $task) {
-      $item = new PHUIObjectItemView();
-      $item->setObjectName('T'.$task->getID());
-      $item->setHeader($task->getTitle());
-      $item->setHref('/T'.$task->getID());
+      $item = id(new PHUIObjectItemView())
+        ->setUser($this->getUser())
+        ->setObject($task)
+        ->setObjectName('T'.$task->getID())
+        ->setHeader($task->getTitle())
+        ->setHref('/T'.$task->getID());
 
       if ($task->getOwnerPHID()) {
         $owner = $handles[$task->getOwnerPHID()];
@@ -58,7 +70,7 @@ final class ManiphestTaskListView extends ManiphestView {
       }
 
       $status = $task->getStatus();
-      if ($status != ManiphestTaskStatus::STATUS_OPEN) {
+      if ($task->isClosed()) {
         $item->setDisabled(true);
       }
 
@@ -75,13 +87,16 @@ final class ManiphestTaskListView extends ManiphestView {
         $item->addSigil('maniphest-task');
       }
 
-      $projects_view = new ManiphestTaskProjectsView();
-      $projects_view->setHandles(
-        array_select_keys(
-          $handles,
-          $task->getProjectPHIDs()));
+      $project_handles = array_select_keys(
+        $handles,
+        $task->getProjectPHIDs());
 
-      $item->addAttribute($projects_view);
+      $item->addAttribute(
+        id(new PHUIHandleTagListView())
+          ->setLimit(4)
+          ->setNoDataString(pht('No Projects'))
+          ->setSlim(true)
+          ->setHandles($project_handles));
 
       $item->setMetadata(
         array(
@@ -89,11 +104,15 @@ final class ManiphestTaskListView extends ManiphestView {
         ));
 
       if ($this->showBatchControls) {
+        $href = new PhutilURI('/maniphest/task/edit/'.$task->getID().'/');
+        if (!$this->showSubpriorityControls) {
+          $href->setQueryParam('ungrippable', 'true');
+        }
         $item->addAction(
           id(new PHUIListItemView())
-            ->setIcon('edit')
+            ->setIcon('fa-pencil')
             ->addSigil('maniphest-edit-task')
-            ->setHref('/maniphest/task/edit/'.$task->getID().'/'));
+            ->setHref($href));
       }
 
       $list->addItem($item);

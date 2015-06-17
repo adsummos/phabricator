@@ -3,7 +3,13 @@
 abstract class PonderEditor
   extends PhabricatorApplicationTransactionEditor {
 
-  protected function supportsFeed() {
+  public function getEditorApplicationClass() {
+    return 'PhabricatorPonderApplication';
+  }
+
+  protected function shouldPublishFeedStory(
+    PhabricatorLiskDAO $object,
+    array $xactions) {
     return true;
   }
 

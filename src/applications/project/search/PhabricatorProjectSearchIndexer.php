@@ -9,20 +9,27 @@ final class PhabricatorProjectSearchIndexer
 
   protected function buildAbstractDocumentByPHID($phid) {
     $project = $this->loadDocumentByPHID($phid);
+    $project->updateDatasourceTokens();
 
     $doc = new PhabricatorSearchAbstractDocument();
     $doc->setPHID($project->getPHID());
-    $doc->setDocumentType(PhabricatorProjectPHIDTypeProject::TYPECONST);
+    $doc->setDocumentType(PhabricatorProjectProjectPHIDType::TYPECONST);
     $doc->setDocumentTitle($project->getName());
     $doc->setDocumentCreated($project->getDateCreated());
     $doc->setDocumentModified($project->getDateModified());
 
-    $this->indexSubscribers($doc);
-    $this->indexCustomFields($doc, $project);
+    $doc->addRelationship(
+      $project->isArchived()
+        ? PhabricatorSearchRelationship::RELATIONSHIP_CLOSED
+        : PhabricatorSearchRelationship::RELATIONSHIP_OPEN,
+      $project->getPHID(),
+      PhabricatorProjectProjectPHIDType::TYPECONST,
+      time());
 
     // NOTE: This could be more full-featured, but for now we're mostly
     // interested in the side effects of indexing.
 
     return $doc;
   }
+
 }

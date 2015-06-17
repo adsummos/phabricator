@@ -1,7 +1,6 @@
 <?php
 
-final class PhabricatorFeedListController extends PhabricatorFeedController
-  implements PhabricatorApplicationSearchResultsControllerInterface {
+final class PhabricatorFeedListController extends PhabricatorFeedController {
 
   private $queryKey;
 
@@ -14,25 +13,12 @@ final class PhabricatorFeedListController extends PhabricatorFeedController
   }
 
   public function processRequest() {
-    $request = $this->getRequest();
-    $controller = id(new PhabricatorApplicationSearchController($request))
+    $controller = id(new PhabricatorApplicationSearchController())
       ->setQueryKey($this->queryKey)
       ->setSearchEngine(new PhabricatorFeedSearchEngine())
       ->setNavigation($this->buildSideNavView());
 
     return $this->delegateToController($controller);
-  }
-
-  public function renderResultsList(
-    array $feed,
-    PhabricatorSavedQuery $query) {
-
-    $builder = new PhabricatorFeedBuilder($feed);
-    $builder->setShowHovercards(true);
-    $builder->setUser($this->getRequest()->getUser());
-    $view = $builder->buildView();
-
-    return phutil_tag_div('phabricator-feed-frame', $view);
   }
 
 }

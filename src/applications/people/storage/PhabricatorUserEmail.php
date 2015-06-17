@@ -12,6 +12,28 @@ final class PhabricatorUserEmail extends PhabricatorUserDAO {
   protected $isPrimary;
   protected $verificationCode;
 
+  const MAX_ADDRESS_LENGTH = 128;
+
+  protected function getConfiguration() {
+    return array(
+      self::CONFIG_COLUMN_SCHEMA => array(
+        'address' => 'sort128',
+        'isVerified' => 'bool',
+        'isPrimary' => 'bool',
+        'verificationCode' => 'text64?',
+      ),
+      self::CONFIG_KEY_SCHEMA => array(
+        'address' => array(
+          'columns' => array('address'),
+          'unique' => true,
+        ),
+        'userPHID' => array(
+          'columns' => array('userPHID', 'isPrimary'),
+        ),
+      ),
+    ) + parent::getConfiguration();
+  }
+
   public function getVerificationURI() {
     return '/emailverify/'.$this->getVerificationCode().'/';
   }
@@ -30,7 +52,52 @@ final class PhabricatorUserEmail extends PhabricatorUserDAO {
   /**
    * @task restrictions
    */
+  public static function isValidAddress($address) {
+    if (strlen($address) > self::MAX_ADDRESS_LENGTH) {
+      return false;
+    }
+
+    // Very roughly validate that this address isn't so mangled that a
+    // reasonable piece of code might completely misparse it. In particular,
+    // the major risks are:
+    //
+    //   - `PhutilEmailAddress` needs to be able to extract the domain portion
+    //     from it.
+    //   - Reasonable mail adapters should be hard-pressed to interpret one
+    //     address as several addresses.
+    //
+    // To this end, we're roughly verifying that there's some normal text, an
+    // "@" symbol, and then some more normal text.
+
+    $email_regex = '(^[a-z0-9_+.!-]+@[a-z0-9_+:.-]+\z)i';
+    if (!preg_match($email_regex, $address)) {
+      return false;
+    }
+
+    return true;
+  }
+
+
+  /**
+   * @task restrictions
+   */
+  public static function describeValidAddresses() {
+    return pht(
+      "Email addresses should be in the form '%s'. The maximum ".
+      "length of an email address is %s character(s).",
+      'user@domain.com',
+      new PhutilNumber(self::MAX_ADDRESS_LENGTH));
+  }
+
+
+  /**
+   * @task restrictions
+   */
   public static function isAllowedAddress($address) {
+    if (!self::isValidAddress($address)) {
+      return false;
+    }
+
     $allowed_domains = PhabricatorEnv::getEnvConfig('auth.email-domains');
     if (!$allowed_domains) {
       return true;
@@ -43,7 +110,15 @@ final class PhabricatorUserEmail extends PhabricatorUserDAO {
       return false;
     }
 
-    return in_array($domain, $allowed_domains);
+    $lower_domain = phutil_utf8_strtolower($domain);
+    foreach ($allowed_domains as $allowed_domain) {
+      $lower_allowed = phutil_utf8_strtolower($allowed_domain);
+      if ($lower_allowed === $lower_domain) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
 
@@ -57,10 +132,11 @@ final class PhabricatorUserEmail extends PhabricatorUserDAO {
     }
 
     if (count($domains) == 1) {
-      return 'Email address must be @'.head($domains);
+      return pht('Email address must be @%s', head($domains));
     } else {
-      return 'Email address must be at one of: '.
-        implode(', ', $domains);
+      return pht(
+        'Email address must be at one of: %s',
+        implode(', ', $domains));
     }
   }
 
@@ -100,26 +176,23 @@ final class PhabricatorUserEmail extends PhabricatorUserDAO {
 
     $signature = null;
     if (!$is_serious) {
-      $signature = <<<EOSIGNATURE
-Get Well Soon,
-Phabricator
-EOSIGNATURE;
+      $signature = pht("Get Well Soon,\nPhabricator");
     }
 
-    $body = <<<EOBODY
-Hi {$username},
-
-Please verify that you own this email address ({$address}) by clicking this
-link:
-
-  {$link}
-
-{$signature}
-EOBODY;
+    $body = sprintf(
+      "%s\n\n%s\n\n  %s\n\n%s",
+      pht('Hi %s', $username),
+      pht(
+        'Please verify that you own this email address (%s) by '.
+        'clicking this link:',
+        $address),
+      $link,
+      $signature);
 
     id(new PhabricatorMetaMTAMail())
       ->addRawTos(array($address))
-      ->setSubject('[Phabricator] Email Verification')
+      ->setForceDelivery(true)
+      ->setSubject(pht('[Phabricator] Email Verification'))
       ->setBody($body)
       ->setRelatedPHID($user->getPHID())
       ->saveAndSend();
@@ -145,18 +218,20 @@ EOBODY;
     $old_address = $this->getAddress();
     $new_address = $new->getAddress();
 
-    $body = <<<EOBODY
-Hi {$username},
-
-This email address ({$old_address}) is no longer your primary email address.
-Going forward, Phabricator will send all email to your new primary email
-address ({$new_address}).
-
-EOBODY;
+    $body = sprintf(
+      "%s\n\n%s\n",
+      pht('Hi %s', $username),
+      pht(
+        'This email address (%s) is no longer your primary email address. '.
+        'Going forward, Phabricator will send all email to your new primary '.
+        'email address (%s).',
+        $old_address,
+        $new_address));
 
     id(new PhabricatorMetaMTAMail())
       ->addRawTos(array($old_address))
-      ->setSubject('[Phabricator] Primary Address Changed')
+      ->setForceDelivery(true)
+      ->setSubject(pht('[Phabricator] Primary Address Changed'))
       ->setBody($body)
       ->setFrom($user->getPHID())
       ->setRelatedPHID($user->getPHID())
@@ -177,17 +252,18 @@ EOBODY;
 
     $new_address = $this->getAddress();
 
-    $body = <<<EOBODY
-Hi {$username},
-
-This is now your primary email address ({$new_address}). Going forward,
-Phabricator will send all email here.
-
-EOBODY;
+    $body = sprintf(
+      "%s\n\n%s\n",
+      pht('Hi %s', $username),
+      pht(
+        'This is now your primary email address (%s). Going forward, '.
+        'Phabricator will send all email here.',
+        $new_address));
 
     id(new PhabricatorMetaMTAMail())
       ->addRawTos(array($new_address))
-      ->setSubject('[Phabricator] Primary Address Changed')
+      ->setForceDelivery(true)
+      ->setSubject(pht('[Phabricator] Primary Address Changed'))
       ->setBody($body)
       ->setFrom($user->getPHID())
       ->setRelatedPHID($user->getPHID())

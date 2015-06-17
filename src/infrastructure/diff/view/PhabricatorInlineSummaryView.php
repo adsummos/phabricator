@@ -15,11 +15,7 @@ final class PhabricatorInlineSummaryView extends AphrontView {
 
   public function render() {
     require_celerity_resource('inline-comment-summary-css');
-    return hsprintf('%s%s', $this->renderHeader(), $this->renderTable());
-  }
-
-  private function renderHeader() {
-    return phutil_tag_div('phabricator-inline-summary', pht('Inline Comments'));
+    return hsprintf('%s', $this->renderTable());
   }
 
   private function renderTable() {
@@ -34,15 +30,21 @@ final class PhabricatorInlineSummaryView extends AphrontView {
         }
       }
 
-      $rows[] = phutil_tag(
-        'tr',
-        array(),
-        phutil_tag('th', array('colspan' => 3), $group));
+      $icon = id(new PHUIIconView())
+        ->setIconFont('fa-file-code-o darkbluetext mmr');
+      $header = phutil_tag(
+        'th',
+        array(
+          'colspan' => 3,
+          'class' => 'inline-comment-summary-table-header',
+        ),
+        array(
+          $icon,
+          $group,
+        ));
+      $rows[] = phutil_tag('tr', array(), $header);
 
       foreach ($items as $item) {
-
-        $items = isort($items, 'line');
-
         $line = $item['line'];
         $length = $item['length'];
         if ($length) {
@@ -62,6 +64,9 @@ final class PhabricatorInlineSummaryView extends AphrontView {
         }
 
         if ($href) {
+          $icon = id(new PHUIIconView())
+            ->setIconFont('fa-share darkbluetext mmr');
+
           $lines = phutil_tag(
             'a',
             array(
@@ -70,6 +75,7 @@ final class PhabricatorInlineSummaryView extends AphrontView {
               'class'   => 'num',
             ),
             array(
+              $icon,
               $lines,
               $tail,
             ));
@@ -82,17 +88,22 @@ final class PhabricatorInlineSummaryView extends AphrontView {
           'tr',
           array(),
           array(
-            phutil_tag('td', array('class' => 'inline-line-number'), $lines),
+            phutil_tag('td',
+              array('class' => 'inline-line-number inline-table-dolumn'),
+              $lines),
             ($has_where
-              ? phutil_tag('td', array('class' => 'inline-which-diff'), $where)
+              ? phutil_tag('td',
+              array('class' => 'inline-which-diff inline-table-dolumn'),
+              $where)
               : null),
             phutil_tag(
               'td',
               array(
-                'class' => 'inline-summary-content',
+                'class' => 'inline-summary-content inline-table-dolumn',
                 'colspan' => $colspan,
               ),
-              phutil_tag_div('phabricator-remarkup', $item['content']))));
+              phutil_tag_div('phabricator-remarkup', $item['content'])),
+            ));
       }
     }
 

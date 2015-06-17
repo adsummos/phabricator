@@ -7,49 +7,49 @@ final class PhabricatorUnitsTestCase extends PhabricatorTestCase {
 
   public function testByteFormatting() {
     $tests = array(
-      1               => '1 B',
-      1000            => '1 KB',
-      1000000         => '1 MB',
-      10000000        => '10 MB',
-      100000000       => '100 MB',
-      1000000000      => '1 GB',
-      999             => '999 B',
+      1                   => '1 B',
+      1024                => '1 KB',
+      1024 * 1024         => '1 MB',
+      10 * 1024 * 1024    => '10 MB',
+      100 * 1024 * 1024   => '100 MB',
+      1024 * 1024 * 1024  => '1 GB',
+      999                 => '999 B',
     );
 
     foreach ($tests as $input => $expect) {
       $this->assertEqual(
         $expect,
-        phabricator_format_bytes($input),
-        'phabricator_format_bytes('.$input.')');
+        phutil_format_bytes($input),
+        'phutil_format_bytes('.$input.')');
     }
   }
 
   public function testByteParsing() {
     $tests = array(
       '1'             => 1,
-      '1k'            => 1000,
-      '1K'            => 1000,
-      '1kB'           => 1000,
-      '1Kb'           => 1000,
-      '1KB'           => 1000,
-      '1MB'           => 1000000,
-      '1GB'           => 1000000000,
-      '1.5M'          => 1500000,
+      '1k'            => 1024,
+      '1K'            => 1024,
+      '1kB'           => 1024,
+      '1Kb'           => 1024,
+      '1KB'           => 1024,
+      '1MB'           => 1024 * 1024,
+      '1GB'           => 1024 * 1024 * 1024,
+      '1.5M'          => (int)(1024 * 1024 * 1.5),
       '1 000'         => 1000,
-      '1,234.56 KB'   => 1234560,
+      '1,234.56 KB'   => (int)(1024 * 1234.56),
     );
 
     foreach ($tests as $input => $expect) {
       $this->assertEqual(
         $expect,
-        phabricator_parse_bytes($input),
-        'phabricator_parse_bytes('.$input.')');
+        phutil_parse_bytes($input),
+        'phutil_parse_bytes('.$input.')');
     }
 
     $this->tryTestCases(
       array('string' => 'string'),
       array(false),
-      'phabricator_parse_bytes');
+      'phutil_parse_bytes');
   }
 
   public function testDetailedDurationFormatting() {
@@ -68,8 +68,8 @@ final class PhabricatorUnitsTestCase extends PhabricatorTestCase {
     foreach ($tests as $duration => $expect) {
       $this->assertEqual(
         $expect,
-        phabricator_format_relative_time_detailed($duration),
-        'phabricator_format_relative_time_detailed('.$duration.')');
+        phutil_format_relative_time_detailed($duration),
+        'phutil_format_relative_time_detailed('.$duration.')');
     }
 
 
@@ -113,16 +113,16 @@ final class PhabricatorUnitsTestCase extends PhabricatorTestCase {
         foreach ($sub_tests as $levels => $expect) {
           $this->assertEqual(
             $expect,
-            phabricator_format_relative_time_detailed($duration, $levels),
-            'phabricator_format_relative_time_detailed('.$duration.',
+            phutil_format_relative_time_detailed($duration, $levels),
+            'phutil_format_relative_time_detailed('.$duration.',
               '.$levels.')');
         }
       } else {
         $expect = $sub_tests;
         $this->assertEqual(
           $expect,
-          phabricator_format_relative_time_detailed($duration),
-          'phabricator_format_relative_time_detailed('.$duration.')');
+          phutil_format_relative_time_detailed($duration),
+          'phutil_format_relative_time_detailed('.$duration.')');
 
       }
     }

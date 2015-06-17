@@ -4,30 +4,6 @@ abstract class DiffusionController extends PhabricatorController {
 
   protected $diffusionRequest;
 
-  public function willBeginExecution() {
-    $request = $this->getRequest();
-
-    // Check if this is a VCS request, e.g. from "git clone", "hg clone", or
-    // "svn checkout". If it is, we jump off into repository serving code to
-    // process the request.
-    if (DiffusionServeController::isVCSRequest($request)) {
-      $serve_controller = id(new DiffusionServeController($request))
-        ->setCurrentApplication($this->getCurrentApplication());
-      return $this->delegateToController($serve_controller);
-    }
-
-    return parent::willBeginExecution();
-  }
-
-  public function willProcessRequest(array $data) {
-    if (isset($data['callsign'])) {
-      $drequest = DiffusionRequest::newFromAphrontRequestDictionary(
-        $data,
-        $this->getRequest());
-      $this->diffusionRequest = $drequest;
-    }
-  }
-
   public function setDiffusionRequest(DiffusionRequest $request) {
     $this->diffusionRequest = $request;
     return $this;
@@ -35,10 +11,47 @@ abstract class DiffusionController extends PhabricatorController {
 
   protected function getDiffusionRequest() {
     if (!$this->diffusionRequest) {
-      throw new Exception("No Diffusion request object!");
+      throw new Exception(pht('No Diffusion request object!'));
     }
     return $this->diffusionRequest;
   }
+
+  public function willBeginExecution() {
+    $request = $this->getRequest();
+
+    // Check if this is a VCS request, e.g. from "git clone", "hg clone", or
+    // "svn checkout". If it is, we jump off into repository serving code to
+    // process the request.
+    if (DiffusionServeController::isVCSRequest($request)) {
+      $serve_controller = id(new DiffusionServeController())
+        ->setCurrentApplication($this->getCurrentApplication());
+      return $this->delegateToController($serve_controller);
+    }
+
+    return parent::willBeginExecution();
+  }
+
+  protected function shouldLoadDiffusionRequest() {
+    return true;
+  }
+
+  final public function handleRequest(AphrontRequest $request) {
+    if ($request->getURIData('callsign') &&
+        $this->shouldLoadDiffusionRequest()) {
+      try {
+      $drequest = DiffusionRequest::newFromAphrontRequestDictionary(
+        $request->getURIMap(),
+        $request);
+      } catch (Exception $ex) {
+        return id(new Aphront404Response())
+          ->setRequest($request);
+      }
+      $this->setDiffusionRequest($drequest);
+    }
+    return $this->processDiffusionRequest($request);
+  }
+
+  abstract protected function processDiffusionRequest(AphrontRequest $request);
 
   public function buildCrumbs(array $spec = array()) {
     $crumbs = $this->buildApplicationCrumbs();
@@ -83,7 +96,7 @@ abstract class DiffusionController extends PhabricatorController {
       }
     }
 
-    $crumb = id(new PhabricatorCrumbView())
+    $crumb = id(new PHUICrumbView())
       ->setName($repository_name);
     if (!$spec['view'] && !$spec['commit'] &&
         !$spec['tags'] && !$spec['branches']) {
@@ -98,17 +111,17 @@ abstract class DiffusionController extends PhabricatorController {
         )));
     $crumb_list[] = $crumb;
 
-    $raw_commit = $drequest->getRawCommit();
+    $stable_commit = $drequest->getStableCommit();
 
     if ($spec['tags']) {
-      $crumb = new PhabricatorCrumbView();
+      $crumb = new PHUICrumbView();
       if ($spec['commit']) {
         $crumb->setName(
-          pht("Tags for %s", 'r'.$callsign.$raw_commit));
+          pht('Tags for %s', 'r'.$callsign.$stable_commit));
         $crumb->setHref($drequest->generateURI(
           array(
             'action' => 'commit',
-            'commit' => $raw_commit,
+            'commit' => $drequest->getStableCommit(),
           )));
       } else {
         $crumb->setName(pht('Tags'));
@@ -118,21 +131,21 @@ abstract class DiffusionController extends PhabricatorController {
     }
 
     if ($spec['branches']) {
-      $crumb = id(new PhabricatorCrumbView())
+      $crumb = id(new PHUICrumbView())
         ->setName(pht('Branches'));
       $crumb_list[] = $crumb;
       return $crumb_list;
     }
 
     if ($spec['commit']) {
-      $crumb = id(new PhabricatorCrumbView())
-        ->setName("r{$callsign}{$raw_commit}")
-        ->setHref("r{$callsign}{$raw_commit}");
+      $crumb = id(new PHUICrumbView())
+        ->setName("r{$callsign}{$stable_commit}")
+        ->setHref("r{$callsign}{$stable_commit}");
       $crumb_list[] = $crumb;
       return $crumb_list;
     }
 
-    $crumb = new PhabricatorCrumbView();
+    $crumb = new PHUICrumbView();
     $view = $spec['view'];
 
     switch ($view) {
@@ -150,7 +163,7 @@ abstract class DiffusionController extends PhabricatorController {
         break;
     }
 
-    $crumb = id(new PhabricatorCrumbView())
+    $crumb = id(new PHUICrumbView())
       ->setName($view_name);
 
     $crumb_list[] = $crumb;
@@ -184,7 +197,8 @@ abstract class DiffusionController extends PhabricatorController {
     $divider = phutil_tag(
       'span',
       array(
-        'class' => 'phui-header-divider'),
+        'class' => 'phui-header-divider',
+      ),
       '/');
 
     $links = array();
@@ -229,8 +243,8 @@ abstract class DiffusionController extends PhabricatorController {
   }
 
   protected function renderStatusMessage($title, $body) {
-    return id(new AphrontErrorView())
-      ->setSeverity(AphrontErrorView::SEVERITY_WARNING)
+    return id(new PHUIInfoView())
+      ->setSeverity(PHUIInfoView::SEVERITY_WARNING)
       ->setTitle($title)
       ->appendChild($body);
   }

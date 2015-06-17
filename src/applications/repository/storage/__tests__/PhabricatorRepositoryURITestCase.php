@@ -19,15 +19,15 @@ final class PhabricatorRepositoryURITestCase
     $http_secret = id(new PassphraseSecret())->setSecretData('quack')->save();
 
     $http_credential = PassphraseCredential::initializeNewCredential($user)
-      ->setCredentialType(PassphraseCredentialTypePassword::CREDENTIAL_TYPE)
-      ->setProvidesType(PassphraseCredentialTypePassword::PROVIDES_TYPE)
+      ->setCredentialType(PassphrasePasswordCredentialType::CREDENTIAL_TYPE)
+      ->setProvidesType(PassphrasePasswordCredentialType::PROVIDES_TYPE)
       ->setUsername('duck')
       ->setSecretID($http_secret->getID())
       ->save();
 
     $repo = PhabricatorRepository::initializeNewRepository($user)
       ->setVersionControlSystem($svn)
-      ->setName('Test Repo')
+      ->setName(pht('Test Repo'))
       ->setCallsign('TESTREPO')
       ->setCredentialPHID($http_credential->getPHID())
       ->save();
@@ -88,6 +88,19 @@ final class PhabricatorRepositoryURITestCase
     $this->assertEqual('git@example.com:path.git', $repo->getRemoteURI());
     $this->assertEqual('git@example.com:path.git', $repo->getPublicCloneURI());
     $this->assertEqual('git@example.com:path.git',
+      $repo->getRemoteURIEnvelope()->openEnvelope());
+
+    // Test SVN "Import Only" paths.
+
+    $repo->setDetail('remote-uri', 'http://example.com/');
+    $repo->setVersionControlSystem($svn);
+    $repo->setDetail('svn-subpath', 'projects/example/');
+
+    $this->assertEqual('http://example.com/', $repo->getRemoteURI());
+    $this->assertEqual(
+      'http://example.com/projects/example/',
+      $repo->getPublicCloneURI());
+    $this->assertEqual('http://example.com/',
       $repo->getRemoteURIEnvelope()->openEnvelope());
 
   }

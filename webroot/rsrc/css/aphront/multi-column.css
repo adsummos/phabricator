@@ -17,6 +17,11 @@
   margin: 0;
 }
 
+.device-desktop .phui-workboard-view-shadow .aphront-multi-column-inner
+  .aphront-multi-column-column-last {
+  margin-right: 8px;
+}
+
 .device .aphront-multi-column-outer
   div.aphront-multi-column-column-outer {
   width: auto;
@@ -103,6 +108,10 @@
   width: 100%;
 }
 
+.device-desktop .aphront-multi-column-fixed .aphront-multi-column-inner {
+  margin: 0 0 12px 12px;
+}
+
 /* magic sauce */
 .aphront-multi-column-fluid .aphront-multi-column-inner {
   table-layout: fixed;
@@ -142,4 +151,70 @@
 .device .phui-box-border .aphront-multi-colum-column-outer-last {
   border: none;
   padding-bottom: 0;
+}
+
+/* Make Dashboards reasonably display on homepage narrow widths */
+@media (max-width: 1000px) {
+  .device-desktop .dashboard-view .aphront-multi-column-inner {
+    display: block;
+    width: auto;
+  }
+  .device-desktop .dashboard-view .aphront-multi-column-column-outer {
+    display: block;
+    border: none;
+  }
+  .device-desktop .dashboard-view .aphront-multi-column-column.mlr {
+    margin: 0;
+  }
+  .device-desktop .dashboard-view .aphront-multi-column-fluid
+    .aphront-multi-column-2-up .aphront-multi-column-column-outer.half {
+     width: auto;
+     margin: 0 0 16px;
+  }
+  .device-desktop .dashboard-view .aphront-multi-column-fluid
+    .aphront-multi-column-2-up .aphront-multi-column-column-outer.thirds {
+     width: auto;
+     margin: 0 0 16px;
+  }
+  .device-desktop .dashboard-view .aphront-multi-column-fluid
+    .aphront-multi-column-2-up .aphront-multi-column-column-outer.third {
+    width: auto;
+    margin: 0 0 16px;
+  }
+}
+
+/* Make Dashboards with Durable reasonably display on homepage narrow widths */
+@media (max-width: 1300px) {
+  .device-desktop.with-durable-column .dashboard-view
+    .aphront-multi-column-inner {
+      display: block;
+      width: auto;
+  }
+  .device-desktop.with-durable-column .dashboard-view
+    .aphront-multi-column-column-outer {
+      display: block;
+      border: none;
+  }
+  .device-desktop.with-durable-column .dashboard-view
+    .aphront-multi-column-column.mlr {
+      margin: 0;
+  }
+  .device-desktop.with-durable-column .dashboard-view
+    .aphront-multi-column-fluid .aphront-multi-column-2-up
+    .aphront-multi-column-column-outer.half {
+      width: auto;
+      margin: 0 0 16px;
+  }
+  .device-desktop.with-durable-column .dashboard-view
+    .aphront-multi-column-fluid .aphront-multi-column-2-up
+    .aphront-multi-column-column-outer.thirds {
+      width: auto;
+      margin: 0 0 16px;
+  }
+  .device-desktop.with-durable-column .dashboard-view
+    .aphront-multi-column-fluid .aphront-multi-column-2-up
+    .aphront-multi-column-column-outer.third {
+      width: auto;
+      margin: 0 0 16px;
+  }
 }

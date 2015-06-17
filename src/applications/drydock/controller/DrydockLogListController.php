@@ -1,7 +1,6 @@
 <?php
 
-final class DrydockLogListController extends DrydockLogController
-  implements PhabricatorApplicationSearchResultsControllerInterface {
+final class DrydockLogListController extends DrydockLogController {
 
   private $queryKey;
 
@@ -14,21 +13,12 @@ final class DrydockLogListController extends DrydockLogController
   }
 
   public function processRequest() {
-    $request = $this->getRequest();
-    $controller = id(new PhabricatorApplicationSearchController($request))
+    $controller = id(new PhabricatorApplicationSearchController())
       ->setQueryKey($this->queryKey)
       ->setSearchEngine(new DrydockLogSearchEngine())
       ->setNavigation($this->buildSideNavView());
 
     return $this->delegateToController($controller);
-  }
-
-  public function renderResultsList(
-    array $logs,
-    PhabricatorSavedQuery $query) {
-    assert_instances_of($logs, 'DrydockLog');
-
-    return $this->buildLogTableView($logs);
   }
 
 }

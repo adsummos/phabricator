@@ -17,7 +17,7 @@ final class PonderQuestionTransaction
   }
 
   public function getApplicationTransactionType() {
-    return PonderPHIDTypeQuestion::TYPECONST;
+    return PonderQuestionPHIDType::TYPECONST;
   }
 
   public function getApplicationTransactionCommentObject() {
@@ -35,6 +35,18 @@ final class PonderQuestionTransaction
     }
 
     return $phids;
+  }
+
+  public function getRemarkupBlocks() {
+    $blocks = parent::getRemarkupBlocks();
+
+    switch ($this->getTransactionType()) {
+      case self::TYPE_CONTENT:
+        $blocks[] = $this->getNewValue();
+        break;
+    }
+
+    return $blocks;
   }
 
   public function getTitle() {
@@ -64,10 +76,11 @@ final class PonderQuestionTransaction
       case self::TYPE_ANSWERS:
         $answer_handle = $this->getHandle($this->getNewAnswerPHID());
         $question_handle = $this->getHandle($object_phid);
+
         return pht(
           '%s answered %s',
           $this->renderHandleLink($author_phid),
-          $answer_handle->renderLink($question_handle->getFullName()));
+          $this->renderHandleLink($object_phid));
       case self::TYPE_STATUS:
         switch ($new) {
           case PonderQuestionStatus::STATUS_OPEN:
@@ -91,16 +104,16 @@ final class PonderQuestionTransaction
     switch ($this->getTransactionType()) {
       case self::TYPE_TITLE:
       case self::TYPE_CONTENT:
-        return 'edit';
+        return 'fa-pencil';
       case self::TYPE_STATUS:
         switch ($new) {
           case PonderQuestionStatus::STATUS_OPEN:
-            return 'enable';
+            return 'fa-check-circle';
           case PonderQuestionStatus::STATUS_CLOSED:
-            return 'disable';
+            return 'fa-minus-circle';
         }
       case self::TYPE_ANSWERS:
-        return 'new';
+        return 'fa-plus';
     }
 
     return parent::getIcon();
@@ -121,7 +134,7 @@ final class PonderQuestionTransaction
           case PonderQuestionStatus::STATUS_OPEN:
             return PhabricatorTransactions::COLOR_GREEN;
           case PonderQuestionStatus::STATUS_CLOSED:
-            return PhabricatorTransactions::COLOR_BLACK;
+            return PhabricatorTransactions::COLOR_INDIGO;
         }
     }
   }
@@ -135,15 +148,10 @@ final class PonderQuestionTransaction
   }
 
   public function renderChangeDetails(PhabricatorUser $viewer) {
-    $old = $this->getOldValue();
-    $new = $this->getNewValue();
-
-    $view = id(new PhabricatorApplicationTransactionTextDiffDetailView())
-      ->setUser($viewer)
-      ->setOldText($old)
-      ->setNewText($new);
-
-    return $view->render();
+    return $this->renderTextCorpusChangeDetails(
+      $viewer,
+      $this->getOldValue(),
+      $this->getNewValue());
   }
 
   public function getActionStrength() {
@@ -194,7 +202,7 @@ final class PonderQuestionTransaction
     return parent::shouldHide();
   }
 
-  public function getTitleForFeed(PhabricatorFeedStory $story) {
+  public function getTitleForFeed() {
     $author_phid = $this->getAuthorPHID();
     $object_phid = $this->getObjectPHID();
 
@@ -242,7 +250,7 @@ final class PonderQuestionTransaction
         }
     }
 
-    return parent::getTitleForFeed($story);
+    return parent::getTitleForFeed();
   }
 
   public function getBodyForFeed(PhabricatorFeedStory $story) {
@@ -256,14 +264,18 @@ final class PonderQuestionTransaction
         if ($old === null) {
           $question = $story->getObject($this->getObjectPHID());
           return phutil_escape_html_newlines(
-            phutil_utf8_shorten($question->getContent(), 128));
+            id(new PhutilUTF8StringTruncator())
+            ->setMaximumGlyphs(128)
+            ->truncateString($question->getContent()));
         }
         break;
       case self::TYPE_ANSWERS:
         $answer = $this->getNewAnswerObject($story);
         if ($answer) {
           return phutil_escape_html_newlines(
-            phutil_utf8_shorten($answer->getContent(), 128));
+            id(new PhutilUTF8StringTruncator())
+            ->setMaximumGlyphs(128)
+            ->truncateString($answer->getContent()));
         }
         break;
     }
@@ -283,7 +295,7 @@ final class PonderQuestionTransaction
 
     if (count($add) != 1) {
       throw new Exception(
-        'There should be only one answer added at a time.');
+        pht('There should be only one answer added at a time.'));
     }
 
     return reset($add);
@@ -291,7 +303,7 @@ final class PonderQuestionTransaction
 
   /**
    * Generally, the answer object is only available if the transaction
-   * type is self::TYPE_ANSWERS.
+   * type is `self::TYPE_ANSWERS`.
    *
    * Some stories - notably ones made before D7027 - will be of the more
    * generic @{class:PhabricatorApplicationTransactionFeedStory}. These

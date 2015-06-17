@@ -10,7 +10,7 @@ final class PhabricatorConfigTransaction
   }
 
   public function getApplicationTransactionType() {
-    return PhabricatorConfigPHIDTypeConfig::TYPECONST;
+    return PhabricatorConfigConfigPHIDType::TYPECONST;
   }
 
   public function getApplicationTransactionCommentObject() {
@@ -55,11 +55,49 @@ final class PhabricatorConfigTransaction
     return parent::getTitle();
   }
 
+  public function getTitleForFeed() {
+    $author_phid = $this->getAuthorPHID();
+
+    $old = $this->getOldValue();
+    $new = $this->getNewValue();
+
+    switch ($this->getTransactionType()) {
+      case self::TYPE_EDIT:
+        $old_del = idx($old, 'deleted');
+        $new_del = idx($new, 'deleted');
+        if ($old_del && !$new_del) {
+          return pht(
+            '%s created %s.',
+            $this->renderHandleLink($author_phid),
+            $this->getObject()->getConfigKey());
+        } else if (!$old_del && $new_del) {
+          return pht(
+            '%s deleted %s.',
+            $this->renderHandleLink($author_phid),
+            $this->getObject()->getConfigKey());
+        } else if ($old_del && $new_del) {
+          // This is a bug.
+          return pht(
+            '%s deleted %s (again?).',
+            $this->renderHandleLink($author_phid),
+            $this->getObject()->getConfigKey());
+        } else {
+          return pht(
+            '%s edited %s.',
+            $this->renderHandleLink($author_phid),
+            $this->getObject()->getConfigKey());
+        }
+        break;
+    }
+
+    return parent::getTitle();
+  }
+
 
   public function getIcon() {
     switch ($this->getTransactionType()) {
       case self::TYPE_EDIT:
-        return 'edit';
+        return 'fa-pencil';
     }
 
     return parent::getIcon();
@@ -89,12 +127,10 @@ final class PhabricatorConfigTransaction
       $new_text = PhabricatorConfigJSON::prettyPrintJSON($new['value']);
     }
 
-    $view = id(new PhabricatorApplicationTransactionTextDiffDetailView())
-      ->setUser($viewer)
-      ->setOldText($old_text)
-      ->setNewText($new_text);
-
-    return $view->render();
+    return $this->renderTextCorpusChangeDetails(
+      $viewer,
+      $old_text,
+      $new_text);
   }
 
   public function getColor() {
@@ -118,4 +154,3 @@ final class PhabricatorConfigTransaction
   }
 
 }
-

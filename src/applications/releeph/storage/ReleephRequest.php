@@ -2,6 +2,7 @@
 
 final class ReleephRequest extends ReleephDAO
   implements
+    PhabricatorApplicationTransactionInterface,
     PhabricatorPolicyInterface,
     PhabricatorCustomFieldInterface {
 
@@ -13,6 +14,13 @@ final class ReleephRequest extends ReleephDAO
   protected $pickStatus;
   protected $mailKey;
 
+  /**
+   * The object which is being requested. Normally this is a commit, but it
+   * might also be a revision. In the future, it could be a repository branch
+   * or an external object (like a GitHub pull request).
+   */
+  protected $requestedObjectPHID;
+
   // Information about the thing being requested
   protected $requestCommitPHID;
 
@@ -20,10 +28,10 @@ final class ReleephRequest extends ReleephDAO
   protected $commitIdentifier;
   protected $commitPHID;
 
-  // Pre-populated handles that we'll bulk load in ReleephBranch
-  private $handles = self::ATTACHABLE;
-  private $customFields = self::ATTACHABLE;
 
+  private $customFields = self::ATTACHABLE;
+  private $branch = self::ATTACHABLE;
+  private $requestedObject = self::ATTACHABLE;
 
 
 /* -(  Constants and helper methods  )--------------------------------------- */
@@ -43,7 +51,7 @@ final class ReleephRequest extends ReleephDAO
       $this->getPusherIntent() == self::INTENT_WANT &&
       /**
        * We use "!= pass" instead of "== want" in case the requestor intent is
-       * not present.  In other words, only revert if the requestor explicitly
+       * not present. In other words, only revert if the requestor explicitly
        * passed.
        */
       $this->getRequestorIntent() != self::INTENT_PASS;
@@ -54,18 +62,15 @@ final class ReleephRequest extends ReleephDAO
    * passes on this request.
    */
   public function getPusherIntent() {
-    $project = $this->loadReleephProject();
-    if (!$project) {
-      return null;
-    }
+    $product = $this->getBranch()->getProduct();
 
-    if (!$project->getPushers()) {
+    if (!$product->getPushers()) {
       return self::INTENT_WANT;
     }
 
     $found_pusher_want = false;
     foreach ($this->userIntents as $phid => $intent) {
-      if ($project->isAuthoritativePHID($phid)) {
+      if ($product->isAuthoritativePHID($phid)) {
         if ($intent == self::INTENT_PASS) {
           return self::INTENT_PASS;
         }
@@ -89,6 +94,28 @@ final class ReleephRequest extends ReleephDAO
     return $this->calculateStatus();
   }
 
+  public function getMonogram() {
+    return 'Y'.$this->getID();
+  }
+
+  public function getBranch() {
+    return $this->assertAttached($this->branch);
+  }
+
+  public function attachBranch(ReleephBranch $branch) {
+    $this->branch = $branch;
+    return $this;
+  }
+
+  public function getRequestedObject() {
+    return $this->assertAttached($this->requestedObject);
+  }
+
+  public function attachRequestedObject($object) {
+    $this->requestedObject = $object;
+    return $this;
+  }
+
   private function calculateStatus() {
     if ($this->shouldBeInBranch()) {
       if ($this->getInBranch()) {
@@ -100,15 +127,18 @@ final class ReleephRequest extends ReleephDAO
       if ($this->getInBranch()) {
         return ReleephRequestStatus::STATUS_NEEDS_REVERT;
       } else {
+        $intent_pass = self::INTENT_PASS;
+        $intent_want = self::INTENT_WANT;
+
         $has_been_in_branch = $this->getCommitIdentifier();
         // Regardless of why we reverted something, always say reverted if it
         // was once in the branch.
         if ($has_been_in_branch) {
           return ReleephRequestStatus::STATUS_REVERTED;
-        } elseif ($this->getPusherIntent() === ReleephRequest::INTENT_PASS) {
+        } else if ($this->getPusherIntent() === $intent_pass) {
           // Otherwise, if it has never been in the branch, explicitly say why:
           return ReleephRequestStatus::STATUS_REJECTED;
-        } elseif ($this->getRequestorIntent() === ReleephRequest::INTENT_WANT) {
+        } else if ($this->getRequestorIntent() === $intent_want) {
           return ReleephRequestStatus::STATUS_REQUESTED;
         } else {
           return ReleephRequestStatus::STATUS_ABANDONED;
@@ -120,19 +150,45 @@ final class ReleephRequest extends ReleephDAO
 
 /* -(  Lisk mechanics  )----------------------------------------------------- */
 
-  public function getConfiguration() {
+  protected function getConfiguration() {
     return array(
       self::CONFIG_AUX_PHID => true,
       self::CONFIG_SERIALIZATION => array(
         'details' => self::SERIALIZATION_JSON,
         'userIntents' => self::SERIALIZATION_JSON,
       ),
+      self::CONFIG_COLUMN_SCHEMA => array(
+        'requestCommitPHID' => 'phid?',
+        'commitIdentifier' => 'text40?',
+        'commitPHID' => 'phid?',
+        'pickStatus' => 'uint32?',
+        'inBranch' => 'bool',
+        'mailKey' => 'bytes20',
+        'userIntents' => 'text?',
+      ),
+      self::CONFIG_KEY_SCHEMA => array(
+        'key_phid' => null,
+        'phid' => array(
+          'columns' => array('phid'),
+          'unique' => true,
+        ),
+        'requestIdentifierBranch' => array(
+          'columns' => array('requestCommitPHID', 'branchID'),
+          'unique' => true,
+        ),
+        'branchID' => array(
+          'columns' => array('branchID'),
+        ),
+        'key_requestedObject' => array(
+          'columns' => array('requestedObjectPHID'),
+        ),
+      ),
     ) + parent::getConfiguration();
   }
 
   public function generatePHID() {
     return PhabricatorPHID::generateNewPHID(
-      ReleephPHIDTypeRequest::TYPECONST);
+      ReleephRequestPHIDType::TYPECONST);
   }
 
   public function save() {
@@ -145,14 +201,6 @@ final class ReleephRequest extends ReleephDAO
 
 /* -(  Helpful accessors )--------------------------------------------------- */
 
-  public function setHandles($handles) {
-    $this->handles = $handles;
-    return $this;
-  }
-
-  public function getHandles() {
-    return $this->assertAttached($this->handles);
-  }
 
   public function getDetail($key, $default = null) {
     return idx($this->getDetails(), $key, $default);
@@ -161,6 +209,20 @@ final class ReleephRequest extends ReleephDAO
   public function setDetail($key, $value) {
     $this->details[$key] = $value;
     return $this;
+  }
+
+
+  /**
+   * Get the commit PHIDs this request is requesting.
+   *
+   * NOTE: For now, this always returns one PHID.
+   *
+   * @return list<phid> Commit PHIDs requested by this request.
+   */
+  public function getCommitPHIDs() {
+    return array(
+      $this->requestCommitPHID,
+    );
   }
 
   public function getReason() {
@@ -172,71 +234,27 @@ final class ReleephRequest extends ReleephDAO
     return $reason;
   }
 
-  public function getSummary() {
-    /**
-     * Instead, you can use:
-     *  - getDetail('summary')    // the actual user-chosen summary
-     *  - getSummaryForDisplay()  // falls back to the original commit title
-     *
-     * Or for the fastidious:
-     *  - id(new ReleephSummaryFieldSpecification())
-     *      ->setReleephRequest($rr)
-     *      ->getValue()          // programmatic equivalent to getDetail()
-     */
-    throw new Exception(
-      "getSummary() has been deprecated!");
-  }
-
   /**
    * Allow a null summary, and fall back to the title of the commit.
    */
   public function getSummaryForDisplay() {
     $summary = $this->getDetail('summary');
 
-    if (!$summary) {
-      $pr_commit_data = $this->loadPhabricatorRepositoryCommitData();
-      if ($pr_commit_data) {
-        $message_lines = explode("\n", $pr_commit_data->getCommitMessage());
-        $message_lines = array_filter($message_lines);
-        $summary = head($message_lines);
+    if (!strlen($summary)) {
+      $commit = $this->loadPhabricatorRepositoryCommit();
+      if ($commit) {
+        $summary = $commit->getSummary();
       }
     }
 
-    if (!$summary) {
-      $summary = '(no summary given and commit message empty or unparsed)';
+    if (!strlen($summary)) {
+      $summary = pht('None');
     }
 
     return $summary;
   }
 
-  public function loadRequestCommitDiffPHID() {
-    $phids = array();
-    $commit = $this->loadPhabricatorRepositoryCommit();
-    if ($commit) {
-      $phids = PhabricatorEdgeQuery::loadDestinationPHIDs(
-        $commit->getPHID(),
-        PhabricatorEdgeConfig::TYPE_COMMIT_HAS_DREV);
-    }
-
-    return head($phids);
-  }
-
-
 /* -(  Loading external objects  )------------------------------------------- */
-
-  public function loadReleephBranch() {
-    return $this->loadOneRelative(
-      new ReleephBranch(),
-      'id',
-      'getBranchID');
-  }
-
-  public function loadReleephProject() {
-    $branch = $this->loadReleephBranch();
-    if ($branch) {
-      return $branch->loadReleephProject();
-    }
-  }
 
   public function loadPhabricatorRepositoryCommit() {
     return $this->loadOneRelative(
@@ -252,18 +270,6 @@ final class ReleephRequest extends ReleephDAO
         new PhabricatorRepositoryCommitData(),
         'commitID');
     }
-  }
-
-  // TODO: (T603) Get rid of all this one-off ad-hoc loading.
-  public function loadDifferentialRevision() {
-    $diff_phid = $this->loadRequestCommitDiffPHID();
-    if (!$diff_phid) {
-      return null;
-    }
-    return $this->loadOneRelative(
-        new DifferentialRevision(),
-        'phid',
-        'loadRequestCommitDiffPHID');
   }
 
 
@@ -284,13 +290,29 @@ final class ReleephRequest extends ReleephDAO
   }
 
   public function setStatus($value) {
-    throw new Exception('`status` is now deprecated!');
+    throw new Exception(pht('`%s` is now deprecated!', 'status'));
   }
 
-/* -(  Make magic Lisk methods private  )------------------------------------ */
+/* -(  PhabricatorApplicationTransactionInterface  )------------------------- */
 
-  private function setUserIntents(array $ar) {
-    return parent::setUserIntents($ar);
+
+  public function getApplicationTransactionEditor() {
+    return new ReleephRequestTransactionalEditor();
+  }
+
+  public function getApplicationTransactionObject() {
+    return $this;
+  }
+
+  public function getApplicationTransactionTemplate() {
+    return new ReleephRequestTransaction();
+  }
+
+  public function willRenderTimeline(
+    PhabricatorApplicationTransactionView $timeline,
+    AphrontRequest $request) {
+
+    return $timeline;
   }
 
 
@@ -305,15 +327,17 @@ final class ReleephRequest extends ReleephDAO
   }
 
   public function getPolicy($capability) {
-    return PhabricatorPolicies::POLICY_USER;
+    return $this->getBranch()->getPolicy($capability);
   }
 
   public function hasAutomaticCapability($capability, PhabricatorUser $viewer) {
-    return false;
+    return $this->getBranch()->hasAutomaticCapability($capability, $viewer);
   }
 
   public function describeAutomaticCapability($capability) {
-    return null;
+    return pht(
+      'Pull requests have the same policies as the branches they are '.
+      'requested against.');
   }
 
 

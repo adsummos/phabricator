@@ -12,7 +12,9 @@ final class DiffusionDoorkeeperCommitFeedStoryPublisher
   }
 
   public function canPublishStory(PhabricatorFeedStory $story, $object) {
-    return ($object instanceof PhabricatorRepositoryCommit);
+    return
+      ($story instanceof PhabricatorApplicationTransactionFeedStory) &&
+      ($object instanceof PhabricatorRepositoryCommit);
   }
 
   public function isStoryAboutObjectCreation($object) {
@@ -29,31 +31,38 @@ final class DiffusionDoorkeeperCommitFeedStoryPublisher
     // After ApplicationTransactions, we could annotate feed stories more
     // explicitly.
 
-    $story = $this->getFeedStory();
-    $action = $story->getStoryData()->getValue('action');
-
-    if ($action == PhabricatorAuditActionConstants::CLOSE) {
-      return true;
-    }
-
     $fully_audited = PhabricatorAuditCommitStatusConstants::FULLY_AUDITED;
-    if (($action == PhabricatorAuditActionConstants::ACCEPT) &&
-        $object->getAuditStatus() == $fully_audited) {
-      return true;
+
+    $story = $this->getFeedStory();
+    $xaction = $story->getPrimaryTransaction();
+    switch ($xaction->getTransactionType()) {
+      case PhabricatorAuditActionConstants::ACTION:
+        switch ($xaction->getNewValue()) {
+          case PhabricatorAuditActionConstants::CLOSE:
+            return true;
+          case PhabricatorAuditActionConstants::ACCEPT:
+            if ($object->getAuditStatus() == $fully_audited) {
+              return true;
+            }
+            break;
+        }
     }
 
     return false;
   }
 
   public function willPublishStory($commit) {
-    $requests = id(new PhabricatorAuditQuery())
-      ->withCommitPHIDs(array($commit->getPHID()))
-      ->execute();
+    $requests = id(new DiffusionCommitQuery())
+      ->setViewer($this->getViewer())
+      ->withPHIDs(array($commit->getPHID()))
+      ->needAuditRequests(true)
+      ->executeOne()
+      ->getAudits();
 
     // TODO: This is messy and should be generalized, but we don't have a good
     // query for it yet. Since we run in the daemons, just do the easiest thing
     // we can for the moment. Figure out who all of the "active" (need to
-    // audit) and "passive" (no action necessary) user are.
+    // audit) and "passive" (no action necessary) users are.
 
     $auditor_phids = mpull($requests, 'getAuditorPHID');
     $objects = id(new PhabricatorObjectQuery())
@@ -66,10 +75,6 @@ final class DiffusionDoorkeeperCommitFeedStoryPublisher
 
     foreach ($requests as $request) {
       $status = $request->getAuditStatus();
-      if ($status == PhabricatorAuditStatusConstants::CC) {
-        // We handle these specially below.
-        continue;
-      }
 
       $object = idx($objects, $request->getAuditorPHID());
       if (!$object) {
@@ -107,7 +112,6 @@ final class DiffusionDoorkeeperCommitFeedStoryPublisher
     }
 
 
-
     // Remove "Active" users from the "Passive" list.
     $passive = array_diff_key($passive, $active);
 
@@ -131,13 +135,8 @@ final class DiffusionDoorkeeperCommitFeedStoryPublisher
   }
 
   public function getCCUserPHIDs($object) {
-    $ccs = array();
-    foreach ($this->getAuditRequests() as $request) {
-      if ($request->getAuditStatus() == PhabricatorAuditStatusConstants::CC) {
-        $ccs[] = $request->getAuditorPHID();
-      }
-    }
-    return $ccs;
+    return PhabricatorSubscribersQuery::loadSubscribersForPHID(
+      $object->getPHID());
   }
 
   public function getObjectTitle($object) {
@@ -179,18 +178,6 @@ final class DiffusionDoorkeeperCommitFeedStoryPublisher
   public function getResponsibilityTitle($object) {
     $prefix = $this->getTitlePrefix($object);
     return pht('%s Audit', $prefix);
-  }
-
-  public function getStoryText($object) {
-    $implied_context = $this->getRenderWithImpliedContext();
-
-    $story = $this->getFeedStory();
-    if ($story instanceof PhabricatorFeedStoryAudit) {
-      $text = $story->renderForAsanaBridge($implied_context);
-    } else {
-      $text = $story->renderText();
-    }
-    return $text;
   }
 
   private function getTitlePrefix(PhabricatorRepositoryCommit $commit) {

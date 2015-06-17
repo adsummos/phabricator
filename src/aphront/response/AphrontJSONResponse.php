@@ -1,8 +1,5 @@
 <?php
 
-/**
- * @group aphront
- */
 final class AphrontJSONResponse extends AphrontResponse {
 
   private $content;
@@ -22,7 +19,7 @@ final class AphrontJSONResponse extends AphrontResponse {
     if ($this->addJSONShield === null) {
       return true;
     }
-    return (bool) $this->addJSONShield;
+    return (bool)$this->addJSONShield;
   }
 
   public function buildResponseString() {
@@ -40,4 +37,5 @@ final class AphrontJSONResponse extends AphrontResponse {
     $headers = array_merge(parent::getHeaders(), $headers);
     return $headers;
   }
+
 }

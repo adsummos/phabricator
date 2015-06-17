@@ -9,6 +9,26 @@ final class DiffusionCommitRef extends Phobject {
   private $committerEmail;
   private $hashes = array();
 
+  public static function newFromConduitResult(array $result) {
+    $ref = id(new DiffusionCommitRef())
+      ->setCommitterEmail(idx($result, 'committerEmail'))
+      ->setCommitterName(idx($result, 'committerName'))
+      ->setAuthorEmail(idx($result, 'authorEmail'))
+      ->setAuthorName(idx($result, 'authorName'))
+      ->setMessage(idx($result, 'message'));
+
+    $hashes = array();
+    foreach (idx($result, 'hashes', array()) as $hash_result) {
+      $hashes[] = id(new DiffusionCommitHash())
+        ->setHashType(idx($hash_result, 'type'))
+        ->setHashValue(idx($hash_result, 'value'));
+    }
+
+    $ref->setHashes($hashes);
+
+    return $ref;
+  }
+
   public function setHashes(array $hashes) {
     $this->hashes = $hashes;
     return $this;
@@ -72,6 +92,11 @@ final class DiffusionCommitRef extends Phobject {
 
   public function getCommitter() {
     return $this->formatUser($this->committerName, $this->committerEmail);
+  }
+
+  public function getSummary() {
+    return PhabricatorRepositoryCommitData::summarizeCommitMessage(
+      $this->getMessage());
   }
 
   private function formatUser($name, $email) {

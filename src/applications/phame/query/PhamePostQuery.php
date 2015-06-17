@@ -1,8 +1,5 @@
 <?php
 
-/**
- * @group phame
- */
 final class PhamePostQuery extends PhabricatorCursorPagedPolicyAwareQuery {
 
   private $ids;
@@ -84,7 +81,7 @@ final class PhamePostQuery extends PhabricatorCursorPagedPolicyAwareQuery {
     return $posts;
   }
 
-  private function buildWhereClause(AphrontDatabaseConnection $conn_r) {
+  protected function buildWhereClause(AphrontDatabaseConnection $conn_r) {
     $where = array();
 
     if ($this->ids) {

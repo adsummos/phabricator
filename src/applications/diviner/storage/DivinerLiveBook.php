@@ -1,17 +1,38 @@
 <?php
 
 final class DivinerLiveBook extends DivinerDAO
-  implements PhabricatorPolicyInterface {
+  implements
+    PhabricatorPolicyInterface,
+    PhabricatorProjectInterface,
+    PhabricatorDestructibleInterface,
+    PhabricatorApplicationTransactionInterface {
 
   protected $name;
   protected $viewPolicy;
+  protected $editPolicy;
   protected $configurationData = array();
 
-  public function getConfiguration() {
+  private $projectPHIDs = self::ATTACHABLE;
+
+  protected function getConfiguration() {
     return array(
       self::CONFIG_AUX_PHID => true,
       self::CONFIG_SERIALIZATION => array(
         'configurationData' => self::SERIALIZATION_JSON,
+      ),
+      self::CONFIG_COLUMN_SCHEMA => array(
+        'name' => 'text64',
+      ),
+      self::CONFIG_KEY_SCHEMA => array(
+        'key_phid' => null,
+        'phid' => array(
+          'columns' => array('phid'),
+          'unique' => true,
+        ),
+        'name' => array(
+          'columns' => array('name'),
+          'unique' => true,
+        ),
       ),
     ) + parent::getConfiguration();
   }
@@ -26,8 +47,7 @@ final class DivinerLiveBook extends DivinerDAO
   }
 
   public function generatePHID() {
-    return PhabricatorPHID::generateNewPHID(
-      DivinerPHIDTypeBook::TYPECONST);
+    return PhabricatorPHID::generateNewPHID(DivinerBookPHIDType::TYPECONST);
   }
 
   public function getTitle() {
@@ -38,30 +58,95 @@ final class DivinerLiveBook extends DivinerDAO
     return $this->getConfig('short', $this->getTitle());
   }
 
+  public function getPreface() {
+    return $this->getConfig('preface');
+  }
+
   public function getGroupName($group) {
-    $groups = $this->getConfig('groups');
+    $groups = $this->getConfig('groups', array());
     $spec = idx($groups, $group, array());
     return idx($spec, 'name', $group);
   }
 
+  public function attachProjectPHIDs(array $project_phids) {
+    $this->projectPHIDs = $project_phids;
+    return $this;
+  }
+
+  public function getProjectPHIDs() {
+    return $this->assertAttached($this->projectPHIDs);
+  }
+
+
 /* -(  PhabricatorPolicyInterface  )----------------------------------------- */
+
 
   public function getCapabilities() {
     return array(
       PhabricatorPolicyCapability::CAN_VIEW,
+      PhabricatorPolicyCapability::CAN_EDIT,
     );
   }
 
   public function getPolicy($capability) {
-    return $this->viewPolicy;
+    switch ($capability) {
+      case PhabricatorPolicyCapability::CAN_VIEW:
+        return $this->getViewPolicy();
+      case PhabricatorPolicyCapability::CAN_EDIT:
+        return $this->getEditPolicy();
+    }
   }
 
   public function hasAutomaticCapability($capability, PhabricatorUser $viewer) {
-    return false;
+      return false;
   }
 
   public function describeAutomaticCapability($capability) {
     return null;
+  }
+
+
+/* -(  PhabricatorDestructibleInterface  )----------------------------------- */
+
+
+  public function destroyObjectPermanently(
+    PhabricatorDestructionEngine $engine) {
+
+    $this->openTransaction();
+      $atoms = id(new DivinerAtomQuery())
+        ->setViewer($engine->getViewer())
+        ->withBookPHIDs(array($this->getPHID()))
+        ->execute();
+
+      foreach ($atoms as $atom) {
+        $engine->destroyObject($atom);
+      }
+
+      $this->delete();
+    $this->saveTransaction();
+  }
+
+
+/* -(  PhabricatorApplicationTransactionInterface  )------------------------- */
+
+
+  public function getApplicationTransactionEditor() {
+    return new DivinerLiveBookEditor();
+  }
+
+  public function getApplicationTransactionObject() {
+    return $this;
+  }
+
+  public function getApplicationTransactionTemplate() {
+    return new DivinerLiveBookTransaction();
+  }
+
+  public function willRenderTimeline(
+    PhabricatorApplicationTransactionView $timeline,
+    AphrontRequest $request) {
+
+    return $timeline;
   }
 
 }

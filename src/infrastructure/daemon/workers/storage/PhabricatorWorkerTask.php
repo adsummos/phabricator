@@ -9,44 +9,70 @@ abstract class PhabricatorWorkerTask extends PhabricatorWorkerDAO {
   protected $leaseExpires;
   protected $failureCount;
   protected $dataID;
+  protected $priority;
+  protected $objectPHID;
 
   private $data;
   private $executionException;
 
-  public function setExecutionException(Exception $execution_exception) {
+  protected function getConfiguration() {
+    return array(
+      self::CONFIG_COLUMN_SCHEMA => array(
+        'taskClass' => 'text64',
+        'leaseOwner' => 'text64?',
+        'leaseExpires' => 'epoch?',
+        'failureCount' => 'uint32',
+        'failureTime' => 'epoch?',
+        'priority' => 'uint32',
+        'objectPHID' => 'phid?',
+      ),
+      self::CONFIG_KEY_SCHEMA => array(
+        'key_object' => array(
+          'columns' => array('objectPHID'),
+        ),
+      ),
+    ) + parent::getConfiguration();
+  }
+
+  final public function setExecutionException(Exception $execution_exception) {
     $this->executionException = $execution_exception;
     return $this;
   }
 
-  public function getExecutionException() {
+  final public function getExecutionException() {
     return $this->executionException;
   }
 
-  public function setData($data) {
+  final public function setData($data) {
     $this->data = $data;
     return $this;
   }
 
-  public function getData() {
+  final public function getData() {
     return $this->data;
   }
 
-  public function isArchived() {
+  final public function isArchived() {
     return ($this instanceof PhabricatorWorkerArchiveTask);
   }
 
-  public function getWorkerInstance() {
+  final public function getWorkerInstance() {
     $id = $this->getID();
     $class = $this->getTaskClass();
 
     if (!class_exists($class)) {
       throw new PhabricatorWorkerPermanentFailureException(
-        "Task class '{$class}' does not exist!");
+        pht(
+          "Task class '%s' does not exist!",
+          $class));
     }
 
     if (!is_subclass_of($class, 'PhabricatorWorker')) {
       throw new PhabricatorWorkerPermanentFailureException(
-        "Task class '{$class}' does not extend PhabricatorWorker.");
+        pht(
+          "Task class '%s' does not extend %s.",
+          $class,
+          'PhabricatorWorker'));
     }
 
     return newv($class, array($this->getData()));

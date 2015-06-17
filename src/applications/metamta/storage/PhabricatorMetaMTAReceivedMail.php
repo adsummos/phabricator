@@ -12,12 +12,33 @@ final class PhabricatorMetaMTAReceivedMail extends PhabricatorMetaMTADAO {
   protected $message;
   protected $messageIDHash = '';
 
-  public function getConfiguration() {
+  protected function getConfiguration() {
     return array(
       self::CONFIG_SERIALIZATION => array(
         'headers'     => self::SERIALIZATION_JSON,
         'bodies'      => self::SERIALIZATION_JSON,
         'attachments' => self::SERIALIZATION_JSON,
+      ),
+      self::CONFIG_COLUMN_SCHEMA => array(
+        'relatedPHID' => 'phid?',
+        'authorPHID' => 'phid?',
+        'message' => 'text?',
+        'messageIDHash' => 'bytes12',
+        'status' => 'text32',
+      ),
+      self::CONFIG_KEY_SCHEMA => array(
+        'relatedPHID' => array(
+          'columns' => array('relatedPHID'),
+        ),
+        'authorPHID' => array(
+          'columns' => array('authorPHID'),
+        ),
+        'key_messageIDHash' => array(
+          'columns' => array('messageIDHash'),
+        ),
+        'key_created' => array(
+          'columns' => array('dateCreated'),
+        ),
       ),
     ) + parent::getConfiguration();
   }
@@ -69,7 +90,7 @@ final class PhabricatorMetaMTAReceivedMail extends PhabricatorMetaMTADAO {
     return $this->loadPHIDsFromAddresses($addresses);
   }
 
-  final public function loadCCPHIDs() {
+  public function loadCCPHIDs() {
     return $this->loadPHIDsFromAddresses($this->getCCAddresses());
   }
 
@@ -79,13 +100,7 @@ final class PhabricatorMetaMTAReceivedMail extends PhabricatorMetaMTADAO {
     }
     $users = id(new PhabricatorUserEmail())
       ->loadAllWhere('address IN (%Ls)', $addresses);
-    $user_phids = mpull($users, 'getUserPHID');
-
-    $mailing_lists = id(new PhabricatorMetaMTAMailingList())
-      ->loadAllWhere('email in (%Ls)', $addresses);
-    $mailing_list_phids = mpull($mailing_lists, 'getPHID');
-
-    return array_merge($user_phids,  $mailing_list_phids);
+    return mpull($users, 'getUserPHID');
   }
 
   public function processReceivedMail() {
@@ -100,14 +115,43 @@ final class PhabricatorMetaMTAReceivedMail extends PhabricatorMetaMTADAO {
 
       $this->setAuthorPHID($sender->getPHID());
 
+      // Now that we've identified the sender, mark them as the author of
+      // any attached files.
+      $attachments = $this->getAttachments();
+      if ($attachments) {
+        $files = id(new PhabricatorFileQuery())
+          ->setViewer(PhabricatorUser::getOmnipotentUser())
+          ->withPHIDs($attachments)
+          ->execute();
+        foreach ($files as $file) {
+          $file->setAuthorPHID($sender->getPHID())->save();
+        }
+      }
+
       $receiver->receiveMail($this, $sender);
     } catch (PhabricatorMetaMTAReceivedMailProcessingException $ex) {
+      switch ($ex->getStatusCode()) {
+        case MetaMTAReceivedMailStatus::STATUS_DUPLICATE:
+        case MetaMTAReceivedMailStatus::STATUS_FROM_PHABRICATOR:
+          // Don't send an error email back in these cases, since they're
+          // very unlikely to be the sender's fault.
+          break;
+        case MetaMTAReceivedMailStatus::STATUS_EMPTY_IGNORED:
+          // This error is explicitly ignored.
+          break;
+        default:
+          $this->sendExceptionMail($ex);
+          break;
+      }
+
       $this
         ->setStatus($ex->getStatusCode())
         ->setMessage($ex->getMessage())
         ->save();
       return $this;
     } catch (Exception $ex) {
+      $this->sendExceptionMail($ex);
+
       $this
         ->setStatus(MetaMTAReceivedMailStatus::STATUS_UNHANDLED_EXCEPTION)
         ->setMessage(pht('Unhandled Exception: %s', $ex->getMessage()))
@@ -169,8 +213,9 @@ final class PhabricatorMetaMTAReceivedMail extends PhabricatorMetaMTADAO {
 
     throw new PhabricatorMetaMTAReceivedMailProcessingException(
       MetaMTAReceivedMailStatus::STATUS_FROM_PHABRICATOR,
-      "Ignoring email with 'X-Phabricator-Sent-This-Message' header to avoid ".
-      "loops.");
+      pht(
+        "Ignoring email with '%s' header to avoid loops.",
+        'X-Phabricator-Sent-This-Message'));
   }
 
   /**
@@ -203,8 +248,8 @@ final class PhabricatorMetaMTAReceivedMail extends PhabricatorMetaMTADAO {
       return;
     }
 
-    $message = sprintf(
-      'Ignoring email with message id hash "%s" that has been seen %d '.
+    $message = pht(
+      'Ignoring email with "Message-ID" hash "%s" that has been seen %d '.
       'times, including this message.',
       $message_id_hash,
       $messages_count);
@@ -237,18 +282,86 @@ final class PhabricatorMetaMTAReceivedMail extends PhabricatorMetaMTADAO {
     if (!$accept) {
       throw new PhabricatorMetaMTAReceivedMailProcessingException(
         MetaMTAReceivedMailStatus::STATUS_NO_RECEIVERS,
-        "No concrete, enabled subclasses of `PhabricatorMailReceiver` can ".
-        "accept this mail.");
+        pht(
+          'Phabricator can not process this mail because no application '.
+          'knows how to handle it. Check that the address you sent it to is '.
+          'correct.'.
+          "\n\n".
+          '(No concrete, enabled subclass of PhabricatorMailReceiver can '.
+          'accept this mail.)'));
     }
 
     if (count($accept) > 1) {
       $names = implode(', ', array_keys($accept));
       throw new PhabricatorMetaMTAReceivedMailProcessingException(
         MetaMTAReceivedMailStatus::STATUS_ABUNDANT_RECEIVERS,
-        "More than one `PhabricatorMailReceiver` claims to accept this mail.");
+        pht(
+          'Phabricator is not able to process this mail because more than '.
+          'one application is willing to accept it, creating ambiguity. '.
+          'Mail needs to be accepted by exactly one receiving application.'.
+          "\n\n".
+          'Accepting receivers: %s.',
+          $names));
     }
 
     return head($accept);
+  }
+
+  private function sendExceptionMail(Exception $ex) {
+    $from = $this->getHeader('from');
+    if (!strlen($from)) {
+      return;
+    }
+
+    if ($ex instanceof PhabricatorMetaMTAReceivedMailProcessingException) {
+      $status_code = $ex->getStatusCode();
+      $status_name = MetaMTAReceivedMailStatus::getHumanReadableName(
+        $status_code);
+
+      $title = pht('Error Processing Mail (%s)', $status_name);
+      $description = $ex->getMessage();
+    } else {
+      $title = pht('Error Processing Mail (%s)', get_class($ex));
+      $description = pht('%s: %s', get_class($ex), $ex->getMessage());
+    }
+
+    // TODO: Since headers don't necessarily have unique names, this may not
+    // really be all the headers. It would be nice to pass the raw headers
+    // through from the upper layers where possible.
+
+    $headers = array();
+    foreach ($this->headers as $key => $value) {
+      $headers[] = pht('%s: %s', $key, $value);
+    }
+    $headers = implode("\n", $headers);
+
+    $body = pht(<<<EOBODY
+Your email to Phabricator was not processed, because an error occurred while
+trying to handle it:
+
+%s
+
+-- Original Message Body -----------------------------------------------------
+
+%s
+
+-- Original Message Headers --------------------------------------------------
+
+%s
+
+EOBODY
+,
+      wordwrap($description, 78),
+      $this->getRawTextBody(),
+      $headers);
+
+    $mail = id(new PhabricatorMetaMTAMail())
+      ->setIsErrorEmail(true)
+      ->setForceDelivery(true)
+      ->setSubject($title)
+      ->addRawTos(array($from))
+      ->setBody($body)
+      ->saveAndSend();
   }
 
 }

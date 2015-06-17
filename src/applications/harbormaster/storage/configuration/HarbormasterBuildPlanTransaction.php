@@ -11,11 +11,7 @@ final class HarbormasterBuildPlanTransaction
   }
 
   public function getApplicationTransactionType() {
-    return HarbormasterPHIDTypeBuildPlan::TYPECONST;
-  }
-
-  public function getApplicationTransactionCommentObject() {
-    return new HarbormasterBuildPlanTransactionComment();
+    return HarbormasterBuildPlanPHIDType::TYPECONST;
   }
 
   public function getIcon() {
@@ -25,7 +21,7 @@ final class HarbormasterBuildPlanTransaction
     switch ($this->getTransactionType()) {
       case self::TYPE_NAME:
         if ($old === null) {
-          return 'create';
+          return 'fa-plus';
         }
         break;
     }

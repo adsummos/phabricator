@@ -1,12 +1,13 @@
 <?php
 
-/**
- * @group phriction
- */
 final class PhrictionDocumentController
   extends PhrictionController {
 
   private $slug;
+
+  public function shouldAllowPublic() {
+    return true;
+  }
 
   public function willProcessRequest(array $data) {
     $this->slug = $data['slug'];
@@ -34,25 +35,16 @@ final class PhrictionDocumentController
     $core_content = '';
     $move_notice = '';
     $properties = null;
+    $content = null;
 
     if (!$document) {
 
-      $document = new PhrictionDocument();
+      $document = PhrictionDocument::initializeNewDocument($user, $slug);
 
-      if (PhrictionDocument::isProjectSlug($slug)) {
-        $project = id(new PhabricatorProjectQuery())
-          ->setViewer($user)
-          ->withPhrictionSlugs(array(
-            PhrictionDocument::getProjectSlugIdentifier($slug)))
-          ->executeOne();
-        if (!$project) {
-          return new Aphront404Response();
-        }
-      }
       $create_uri = '/phriction/edit/?slug='.$slug;
 
-      $notice = new AphrontErrorView();
-      $notice->setSeverity(AphrontErrorView::SEVERITY_NODATA);
+      $notice = new PHUIInfoView();
+      $notice->setSeverity(PHUIInfoView::SEVERITY_NODATA);
       $notice->setTitle(pht('No content here!'));
       $notice->appendChild(
         pht(
@@ -76,9 +68,8 @@ final class PhrictionDocumentController
 
         if ($content->getID() != $document->getContentID()) {
           $vdate = phabricator_datetime($content->getDateCreated(), $user);
-          $version_note = new AphrontErrorView();
-          $version_note->setSeverity(AphrontErrorView::SEVERITY_NOTICE);
-          $version_note->setTitle('Older Version');
+          $version_note = new PHUIInfoView();
+          $version_note->setSeverity(PHUIInfoView::SEVERITY_NOTICE);
           $version_note->appendChild(
             pht('You are viewing an older version of this document, as it '.
             'appeared on %s.', $vdate));
@@ -98,16 +89,16 @@ final class PhrictionDocumentController
 
         $core_content = $content->renderContent($user);
       } else if ($current_status == PhrictionChangeType::CHANGE_DELETE) {
-        $notice = new AphrontErrorView();
-        $notice->setSeverity(AphrontErrorView::SEVERITY_NOTICE);
+        $notice = new PHUIInfoView();
+        $notice->setSeverity(PHUIInfoView::SEVERITY_NOTICE);
         $notice->setTitle(pht('Document Deleted'));
         $notice->appendChild(
           pht('This document has been deleted. You can edit it to put new '.
           'content here, or use history to revert to an earlier version.'));
         $core_content = $notice->render();
       } else if ($current_status == PhrictionChangeType::CHANGE_STUB) {
-        $notice = new AphrontErrorView();
-        $notice->setSeverity(AphrontErrorView::SEVERITY_NOTICE);
+        $notice = new PHUIInfoView();
+        $notice->setSeverity(PHUIInfoView::SEVERITY_NOTICE);
         $notice->setTitle(pht('Empty Document'));
         $notice->appendChild(
           pht('This document is empty. You can edit it to put some proper '.
@@ -115,39 +106,79 @@ final class PhrictionDocumentController
         $core_content = $notice->render();
       } else if ($current_status == PhrictionChangeType::CHANGE_MOVE_AWAY) {
         $new_doc_id = $content->getChangeRef();
-        $new_doc = new PhrictionDocument();
-        $new_doc->load($new_doc_id);
 
-        $slug_uri = PhrictionDocument::getSlugURI($new_doc->getSlug());
+        $slug_uri = null;
 
-        $notice = new AphrontErrorView();
-        $notice->setSeverity(AphrontErrorView::SEVERITY_NOTICE);
-        $notice->setTitle(pht('Document Moved'));
-        $notice->appendChild(phutil_tag('p', array(),
-          pht('This document has been moved to %s. You can edit it to put new '.
-          'content here, or use history to revert to an earlier version.',
-            phutil_tag('a', array('href' => $slug_uri), $slug_uri))));
+        // If the new document exists and the viewer can see it, provide a link
+        // to it. Otherwise, render a generic message.
+        $new_docs = id(new PhrictionDocumentQuery())
+          ->setViewer($user)
+          ->withIDs(array($new_doc_id))
+          ->execute();
+        if ($new_docs) {
+          $new_doc = head($new_docs);
+          $slug_uri = PhrictionDocument::getSlugURI($new_doc->getSlug());
+        }
+
+        $notice = id(new PHUIInfoView())
+          ->setSeverity(PHUIInfoView::SEVERITY_NOTICE);
+
+        if ($slug_uri) {
+          $notice->appendChild(
+            phutil_tag(
+              'p',
+              array(),
+              pht(
+                'This document has been moved to %s. You can edit it to put '.
+                'new content here, or use history to revert to an earlier '.
+                'version.',
+                phutil_tag('a', array('href' => $slug_uri), $slug_uri))));
+        } else {
+          $notice->appendChild(
+            phutil_tag(
+              'p',
+              array(),
+              pht(
+                'This document has been moved. You can edit it to put new '.
+                'contne here, or use history to revert to an earlier '.
+                'version.')));
+        }
+
         $core_content = $notice->render();
       } else {
-        throw new Exception("Unknown document status '{$doc_status}'!");
+        throw new Exception(pht("Unknown document status '%s'!", $doc_status));
       }
 
       $move_notice = null;
       if ($current_status == PhrictionChangeType::CHANGE_MOVE_HERE) {
         $from_doc_id = $content->getChangeRef();
-        $from_doc = id(new PhrictionDocument())->load($from_doc_id);
-        $slug_uri = PhrictionDocument::getSlugURI($from_doc->getSlug());
 
-        $move_notice = id(new AphrontErrorView())
-          ->setSeverity(AphrontErrorView::SEVERITY_NOTICE)
-          ->appendChild(pht('This document was moved from %s',
-            phutil_tag('a', array('href' => $slug_uri), $slug_uri)))
-          ->render();
+        $slug_uri = null;
+
+        // If the old document exists and is visible, provide a link to it.
+        $from_docs = id(new PhrictionDocumentQuery())
+          ->setViewer($user)
+          ->withIDs(array($from_doc_id))
+          ->execute();
+        if ($from_docs) {
+          $from_doc = head($from_docs);
+          $slug_uri = PhrictionDocument::getSlugURI($from_doc->getSlug());
+        }
+
+        $move_notice = id(new PHUIInfoView())
+          ->setSeverity(PHUIInfoView::SEVERITY_NOTICE);
+
+        if ($slug_uri) {
+          $move_notice->appendChild(
+            pht(
+              'This document was moved from %s.',
+              phutil_tag('a', array('href' => $slug_uri), $slug_uri)));
+        } else {
+          // Render this for consistency, even though it's a bit silly.
+          $move_notice->appendChild(
+            pht('This document was moved from elsewhere.'));
+        }
       }
-    }
-
-    if ($version_note) {
-      $version_note = $version_note->render();
     }
 
     $children = $this->renderDocumentChildren($slug);
@@ -155,14 +186,29 @@ final class PhrictionDocumentController
     $actions = $this->buildActionView($user, $document);
 
     $crumbs = $this->buildApplicationCrumbs();
-    $crumbs->setActionList($actions);
+    $crumbs->setBorder(true);
     $crumb_views = $this->renderBreadcrumbs($slug);
     foreach ($crumb_views as $view) {
       $crumbs->addCrumb($view);
     }
 
+    $action_button = id(new PHUIButtonView())
+      ->setTag('a')
+      ->setText(pht('Actions'))
+      ->setHref('#')
+      ->setIconFont('fa-bars')
+      ->addClass('phui-mobile-menu')
+      ->setDropdownMenu($actions);
+
     $header = id(new PHUIHeaderView())
-      ->setHeader($page_title);
+      ->setUser($user)
+      ->setPolicyObject($document)
+      ->setHeader($page_title)
+      ->addActionLink($action_button);
+
+    if ($content) {
+      $header->setEpoch($content->getDateCreated());
+    }
 
     $prop_list = null;
     if ($properties) {
@@ -171,35 +217,25 @@ final class PhrictionDocumentController
     }
 
     $page_content = id(new PHUIDocumentView())
-      ->setOffset(true)
+      ->setFontKit(PHUIDocumentView::FONT_SOURCE_SANS)
       ->setHeader($header)
       ->appendChild(
         array(
-          $actions,
           $prop_list,
+          $version_note,
           $move_notice,
           $core_content,
-        ));
-
-    $core_page = phutil_tag(
-      'div',
-        array(
-          'class' => 'phriction-offset'
-        ),
-        array(
-          $page_content,
-          $children,
         ));
 
     return $this->buildApplicationPage(
       array(
         $crumbs->render(),
-        $core_page,
+        $page_content,
+        $children,
       ),
       array(
         'pageObjects' => array($document->getPHID()),
         'title'   => $page_title,
-        'device'  => true,
       ));
 
   }
@@ -214,47 +250,9 @@ final class PhrictionDocumentController
       ->setUser($viewer)
       ->setObject($document);
 
-    $project_phid = null;
-    if (PhrictionDocument::isProjectSlug($slug)) {
-      $project = id(new PhabricatorProjectQuery())
-        ->setViewer($viewer)
-        ->withPhrictionSlugs(array(
-          PhrictionDocument::getProjectSlugIdentifier($slug)))
-        ->executeOne();
-      if ($project) {
-        $project_phid = $project->getPHID();
-      }
-    }
-
-    $phids = array_filter(
-      array(
-        $content->getAuthorPHID(),
-        $project_phid,
-      ));
-
-    $this->loadHandles($phids);
-
-    $project_info = null;
-    if ($project_phid) {
-      $view->addProperty(
-        pht('Project Info'),
-        $this->getHandle($project_phid)->renderLink());
-    }
-
     $view->addProperty(
       pht('Last Author'),
-      $this->getHandle($content->getAuthorPHID())->renderLink());
-
-    $age = time() - $content->getDateCreated();
-    $age = floor($age / (60 * 60 * 24));
-    if ($age < 1) {
-      $when = pht('Today');
-    } else if ($age == 1) {
-      $when = pht('Yesterday');
-    } else {
-      $when = pht("%d Days Ago", $age);
-    }
-    $view->addProperty(pht('Last Updated'), $when);
+      $viewer->renderHandle($content->getAuthorPHID()));
 
     return $view;
   }
@@ -278,28 +276,28 @@ final class PhrictionDocumentController
       return $action_view->addAction(
         id(new PhabricatorActionView())
           ->setName(pht('Create This Document'))
-          ->setIcon('create')
+          ->setIcon('fa-plus-square')
           ->setHref('/phriction/edit/?slug='.$slug));
     }
 
     $action_view->addAction(
       id(new PhabricatorActionView())
         ->setName(pht('Edit Document'))
-        ->setIcon('edit')
+        ->setIcon('fa-pencil')
         ->setHref('/phriction/edit/'.$document->getID().'/'));
 
     if ($document->getStatus() == PhrictionDocumentStatus::STATUS_EXISTS) {
       $action_view->addAction(
         id(new PhabricatorActionView())
           ->setName(pht('Move Document'))
-          ->setIcon('move')
+          ->setIcon('fa-arrows')
           ->setHref('/phriction/move/'.$document->getID().'/')
           ->setWorkflow(true));
 
       $action_view->addAction(
         id(new PhabricatorActionView())
           ->setName(pht('Delete Document'))
-          ->setIcon('delete')
+          ->setIcon('fa-times')
           ->setHref('/phriction/delete/'.$document->getID().'/')
           ->setWorkflow(true));
     }
@@ -308,38 +306,29 @@ final class PhrictionDocumentController
       $action_view->addAction(
         id(new PhabricatorActionView())
         ->setName(pht('View History'))
-        ->setIcon('history')
+        ->setIcon('fa-list')
         ->setHref(PhrictionDocument::getSlugURI($slug, 'history')));
   }
 
   private function renderDocumentChildren($slug) {
-    $document_dao = new PhrictionDocument();
-    $content_dao = new PhrictionContent();
-    $conn = $document_dao->establishConnection('r');
 
-    $limit = 250;
     $d_child = PhabricatorSlug::getDepth($slug) + 1;
     $d_grandchild = PhabricatorSlug::getDepth($slug) + 2;
+    $limit = 250;
 
-    // Select children and grandchildren.
-    $children = queryfx_all(
-      $conn,
-      'SELECT d.slug, d.depth, c.title FROM %T d JOIN %T c
-        ON d.contentID = c.id
-        WHERE d.slug LIKE %> AND d.depth IN (%d, %d)
-          AND d.status IN (%Ld)
-        ORDER BY d.depth, c.title LIMIT %d',
-      $document_dao->getTableName(),
-      $content_dao->getTableName(),
-      ($slug == '/' ? '' : $slug),
-      $d_child,
-      $d_grandchild,
-      array(
+    $query = id(new PhrictionDocumentQuery())
+      ->setViewer($this->getRequest()->getUser())
+      ->withDepths(array($d_child, $d_grandchild))
+      ->withSlugPrefix($slug == '/' ? '' : $slug)
+      ->withStatuses(array(
         PhrictionDocumentStatus::STATUS_EXISTS,
         PhrictionDocumentStatus::STATUS_STUB,
-      ),
-      $limit);
+      ))
+      ->setLimit($limit)
+      ->setOrder(PhrictionDocumentQuery::ORDER_HIERARCHY)
+      ->needContent(true);
 
+    $children = $query->execute();
     if (!$children) {
       return;
     }
@@ -360,7 +349,7 @@ final class PhrictionDocumentController
     if (count($children) == $limit) {
       $more_children = true;
       foreach ($children as $child) {
-        if ($child['depth'] == $d_grandchild) {
+        if ($child->getDepth() == $d_grandchild) {
           $more_children = false;
         }
       }
@@ -370,24 +359,31 @@ final class PhrictionDocumentController
       $more_children = false;
     }
 
-    $grandchildren = array();
+    $children_dicts = array();
+    $grandchildren_dicts = array();
     foreach ($children as $key => $child) {
-      if ($child['depth'] == $d_child) {
+      $child_dict = array(
+        'slug' => $child->getSlug(),
+        'depth' => $child->getDepth(),
+        'title' => $child->getContent()->getTitle(),
+      );
+      if ($child->getDepth() == $d_child) {
+        $children_dicts[] = $child_dict;
         continue;
       } else {
         unset($children[$key]);
         if ($show_grandchildren) {
-          $ancestors = PhabricatorSlug::getAncestry($child['slug']);
-          $grandchildren[end($ancestors)][] = $child;
+          $ancestors = PhabricatorSlug::getAncestry($child->getSlug());
+          $grandchildren_dicts[end($ancestors)][] = $child_dict;
         }
       }
     }
 
     // Fill in any missing children.
-    $known_slugs = ipull($children, null, 'slug');
-    foreach ($grandchildren as $slug => $ignored) {
+    $known_slugs = mpull($children, null, 'getSlug');
+    foreach ($grandchildren_dicts as $slug => $ignored) {
       if (empty($known_slugs[$slug])) {
-        $children[] = array(
+        $children_dicts[] = array(
           'slug'    => $slug,
           'depth'   => $d_child,
           'title'   => PhabricatorSlug::getDefaultTitle($slug),
@@ -396,13 +392,13 @@ final class PhrictionDocumentController
       }
     }
 
-    $children = isort($children, 'title');
+    $children_dicts = isort($children_dicts, 'title');
 
     $list = array();
-    foreach ($children as $child) {
+    foreach ($children_dicts as $child) {
       $list[] = hsprintf('<li>');
       $list[] = $this->renderChildDocumentLink($child);
-      $grand = idx($grandchildren, $child['slug'], array());
+      $grand = idx($grandchildren_dicts, $child['slug'], array());
       if ($grand) {
         $list[] = hsprintf('<ul>');
         foreach ($grand as $grandchild) {
@@ -435,7 +431,6 @@ final class PhrictionDocumentController
     );
 
     return id(new PHUIDocumentView())
-      ->setOffset(true)
       ->appendChild($content);
   }
 

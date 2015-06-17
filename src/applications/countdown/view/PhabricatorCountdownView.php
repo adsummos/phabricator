@@ -17,7 +17,7 @@ final class PhabricatorCountdownView extends AphrontTagView {
   }
 
 
-  public function getTagContent() {
+  protected function getTagContent() {
     $countdown = $this->countdown;
 
     require_celerity_resource('phabricator-countdown-css');
@@ -30,7 +30,7 @@ final class PhabricatorCountdownView extends AphrontTagView {
           'class' => 'phabricator-timer-header',
         ),
         array(
-          "C".$countdown->getID(),
+          'C'.$countdown->getID(),
           ' ',
           phutil_tag(
             'a',

@@ -13,6 +13,23 @@ abstract class ReleephFieldSpecification
     return $this;
   }
 
+  public function shouldAppearInPropertyView() {
+    return true;
+  }
+
+  public function renderPropertyViewLabel() {
+    return $this->getName();
+  }
+
+  public function renderPropertyViewValue(array $handles) {
+    $key = $this->getRequiredStorageKey();
+    $value = $this->getReleephRequest()->getDetail($key);
+    if ($value === '') {
+      return null;
+    }
+    return $value;
+  }
+
   abstract public function getName();
 
 /* -(  Storage  )------------------------------------------------------------ */
@@ -31,8 +48,7 @@ abstract class ReleephFieldSpecification
        * Storage keys are reused for form controls, and periods in form control
        * names break HTML forms.
        */
-      throw new Exception(
-        "You can't use '.' in storage keys!");
+      throw new Exception(pht("You can't use '%s' in storage keys!", '.'));
     }
     return $key;
   }
@@ -75,22 +91,6 @@ abstract class ReleephFieldSpecification
     $value) {
 
     return $value;
-  }
-
-
-/* -(  Header View  )-------------------------------------------------------- */
-
-  /**
-   * Return a label for use in rendering the fields table.  If you return null,
-   * the renderLabelForHeaderView data will span both columns.
-   */
-  public function renderLabelForHeaderView() {
-    return $this->getName();
-  }
-
-  public function renderValueForHeaderView() {
-    $key = $this->getRequiredStorageKey();
-    return $this->getReleephRequest()->getDetail($key);
   }
 
 
@@ -148,25 +148,31 @@ abstract class ReleephFieldSpecification
   }
 
   final public function getReleephProject() {
+    if (!$this->releephProject) {
+      return $this->getReleephBranch()->getProduct();
+    }
     return $this->releephProject;
   }
 
   final public function getReleephBranch() {
+    if (!$this->releephBranch) {
+      return $this->getReleephRequest()->getBranch();
+    }
     return $this->releephBranch;
   }
 
   final public function getReleephRequest() {
+    if (!$this->releephRequest) {
+      return $this->getObject();
+    }
     return $this->releephRequest;
   }
 
   final public function getUser() {
+    if (!$this->user) {
+      return $this->getViewer();
+    }
     return $this->user;
-  }
-
-
-/* -(  Bulk loading  )------------------------------------------------------- */
-
-  public function bulkLoad(array $releeph_requests) {
   }
 
 /* -(  Commit Messages  )---------------------------------------------------- */
@@ -203,10 +209,10 @@ abstract class ReleephFieldSpecification
   private $engine;
 
   /**
-   * ReleephFieldSpecification implements much of PhabricatorMarkupInterface
-   * for you.  If you return true from `shouldMarkup()`, and implement
-   * `getMarkupText()` then your text will be rendered through the Phabricator
-   * markup pipeline.
+   * @{class:ReleephFieldSpecification} implements much of
+   * @{interface:PhabricatorMarkupInterface} for you. If you return true from
+   * `shouldMarkup()`, and implement `getMarkupText()` then your text will be
+   * rendered through the Phabricator markup pipeline.
    *
    * Output is retrievable with `getMarkupEngineOutput()`.
    */

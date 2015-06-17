@@ -1,17 +1,20 @@
 <?php
 
 final class PhabricatorDashboardListController
-  extends PhabricatorDashboardController
-  implements PhabricatorApplicationSearchResultsControllerInterface {
+  extends PhabricatorDashboardController {
 
   private $queryKey;
+
+  public function shouldAllowPublic() {
+    return true;
+  }
+
   public function willProcessRequest(array $data) {
     $this->queryKey = idx($data, 'queryKey');
   }
 
   public function processRequest() {
-    $request = $this->getRequest();
-    $controller = id(new PhabricatorApplicationSearchController($request))
+    $controller = id(new PhabricatorApplicationSearchController())
       ->setQueryKey($this->queryKey)
       ->setSearchEngine(new PhabricatorDashboardSearchEngine())
       ->setNavigation($this->buildSideNavView());
@@ -28,43 +31,24 @@ final class PhabricatorDashboardListController
       ->setViewer($user)
       ->addNavigationItems($nav->getMenu());
 
+    $nav->addLabel(pht('Panels'));
+    $nav->addFilter('panel/', pht('Manage Panels'));
+
     $nav->selectFilter(null);
 
     return $nav;
   }
 
-  public function buildApplicationCrumbs() {
+  protected function buildApplicationCrumbs() {
     $crumbs = parent::buildApplicationCrumbs();
 
     $crumbs->addAction(
       id(new PHUIListItemView())
-        ->setIcon('create')
+        ->setIcon('fa-plus-square')
         ->setName(pht('Create Dashboard'))
         ->setHref($this->getApplicationURI().'create/'));
 
     return $crumbs;
-  }
-
-  public function renderResultsList(
-    array $dashboards,
-    PhabricatorSavedQuery $query) {
-    $viewer = $this->getRequest()->getUser();
-
-    $list = new PHUIObjectItemListView();
-    $list->setUser($viewer);
-    foreach ($dashboards as $dashboard) {
-      $id = $dashboard->getID();
-
-      $item = id(new PHUIObjectItemView())
-        ->setObjectName(pht('Dashboard %d', $id))
-        ->setHeader($dashboard->getName())
-        ->setHref($this->getApplicationURI("view/{$id}/"))
-        ->setObject($dashboard);
-
-      $list->addItem($item);
-    }
-
-    return $list;
   }
 
 }

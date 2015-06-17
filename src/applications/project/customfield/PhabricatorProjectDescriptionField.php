@@ -3,7 +3,7 @@
 final class PhabricatorProjectDescriptionField
   extends PhabricatorProjectStandardCustomField {
 
-  public function createFields() {
+  public function createFields($object) {
     return PhabricatorStandardCustomField::buildStandardFields(
       $this,
       array(
@@ -11,6 +11,7 @@ final class PhabricatorProjectDescriptionField
           'name'        => pht('Description'),
           'type'        => 'remarkup',
           'description' => pht('Short project description.'),
+          'fulltext'    => PhabricatorSearchDocumentFieldType::FIELD_BODY,
         ),
       ));
   }

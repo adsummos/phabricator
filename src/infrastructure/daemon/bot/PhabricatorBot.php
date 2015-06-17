@@ -7,8 +7,6 @@
  * script system interactions and integrate with other systems.
  *
  * NOTE: This is super janky and experimental right now.
- *
- * @group irc
  */
 final class PhabricatorBot extends PhabricatorDaemon {
 
@@ -17,17 +15,25 @@ final class PhabricatorBot extends PhabricatorDaemon {
   private $conduit;
   private $config;
   private $pollFrequency;
+  private $protocolAdapter;
 
-  public function run() {
+  protected function run() {
     $argv = $this->getArgv();
     if (count($argv) !== 1) {
-      throw new Exception("usage: PhabricatorBot <json_config_file>");
+      throw new Exception(
+        pht(
+          'Usage: %s %s',
+          __CLASS__,
+          '<json_config_file>'));
     }
 
     $json_raw = Filesystem::readFile($argv[0]);
-    $config = json_decode($json_raw, true);
-    if (!is_array($config)) {
-      throw new Exception("File '{$argv[0]}' is not valid JSON!");
+    try {
+      $config = phutil_json_decode($json_raw);
+    } catch (PhutilJSONParserException $ex) {
+      throw new PhutilProxyException(
+        pht("File '%s' is not valid JSON!", $argv[0]),
+        $ex);
     }
 
     $nick                   = idx($config, 'nick', 'phabot');
@@ -45,27 +51,40 @@ final class PhabricatorBot extends PhabricatorDaemon {
       $this->handlers[] = $obj;
     }
 
+    $ca_bundle = idx($config, 'https.cabundle');
+    if ($ca_bundle) {
+      HTTPSFuture::setGlobalCABundleFromPath($ca_bundle);
+    }
+
     $conduit_uri = idx($config, 'conduit.uri');
     if ($conduit_uri) {
-      $conduit_user = idx($config, 'conduit.user');
-      $conduit_cert = idx($config, 'conduit.cert');
+      $conduit_token = idx($config, 'conduit.token');
 
       // Normalize the path component of the URI so users can enter the
       // domain without the "/api/" part.
       $conduit_uri = new PhutilURI($conduit_uri);
-      $conduit_uri->setPath('/api/');
-      $conduit_uri = (string)$conduit_uri;
+
+      $conduit_host = (string)$conduit_uri->setPath('/');
+      $conduit_uri = (string)$conduit_uri->setPath('/api/');
 
       $conduit = new ConduitClient($conduit_uri);
-      $response = $conduit->callMethodSynchronous(
-        'conduit.connect',
-        array(
-          'client'            => 'PhabricatorBot',
-          'clientVersion'     => '1.0',
-          'clientDescription' => php_uname('n').':'.$nick,
-          'user'              => $conduit_user,
-          'certificate'       => $conduit_cert,
-        ));
+      if ($conduit_token) {
+        $conduit->setConduitToken($conduit_token);
+      } else {
+        $conduit_user = idx($config, 'conduit.user');
+        $conduit_cert = idx($config, 'conduit.cert');
+
+        $response = $conduit->callMethodSynchronous(
+          'conduit.connect',
+          array(
+            'client'            => __CLASS__,
+            'clientVersion'     => '1.0',
+            'clientDescription' => php_uname('n').':'.$nick,
+            'host'              => $conduit_host,
+            'user'              => $conduit_user,
+            'certificate'       => $conduit_cert,
+          ));
+      }
 
       $this->conduit = $conduit;
     }
@@ -78,6 +97,8 @@ final class PhabricatorBot extends PhabricatorDaemon {
       ->connect();
 
     $this->runLoop();
+
+    $this->protocolAdapter->disconnect();
   }
 
   public function getConfig($key, $default = null) {
@@ -86,6 +107,8 @@ final class PhabricatorBot extends PhabricatorDaemon {
 
   private function runLoop() {
     do {
+      PhabricatorCaches::destroyRequestCache();
+
       $this->stillWorking();
 
       $messages = $this->protocolAdapter->getNextMessages($this->pollFrequency);
@@ -98,7 +121,8 @@ final class PhabricatorBot extends PhabricatorDaemon {
       foreach ($this->handlers as $handler) {
         $handler->runBackgroundTasks();
       }
-    } while (true);
+    } while (!$this->shouldExit());
+
   }
 
   public function writeMessage(PhabricatorBotMessage $message) {
@@ -115,7 +139,7 @@ final class PhabricatorBot extends PhabricatorDaemon {
     }
 
     if ($message->getCommand() == 'LOG') {
-      $this->log("[LOG] ".$message->getBody());
+      $this->log('[LOG] '.$message->getBody());
     }
 
     foreach ($this->handlers as $handler) {
@@ -134,8 +158,12 @@ final class PhabricatorBot extends PhabricatorDaemon {
   public function getConduit() {
     if (empty($this->conduit)) {
       throw new Exception(
-        "This bot is not configured with a Conduit uplink. Set 'conduit.uri', ".
-        "'conduit.user' and 'conduit.cert' in the configuration to connect.");
+        pht(
+          "This bot is not configured with a Conduit uplink. Set '%s', ".
+          "'%s' and '%s' in the configuration to connect.",
+          'conduit.uri',
+          'conduit.user',
+          'conduit.cert'));
     }
     return $this->conduit;
   }

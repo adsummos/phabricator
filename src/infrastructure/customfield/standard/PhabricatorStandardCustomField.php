@@ -3,6 +3,7 @@
 abstract class PhabricatorStandardCustomField
   extends PhabricatorCustomField {
 
+  private $rawKey;
   private $fieldKey;
   private $fieldName;
   private $fieldValue;
@@ -40,6 +41,7 @@ abstract class PhabricatorStandardCustomField
 
       $template = clone $template;
       $standard = id(clone $types[$type])
+        ->setRawStandardFieldKey($key)
         ->setFieldKey($full_key)
         ->setFieldConfig($value)
         ->setApplicationField($template);
@@ -105,8 +107,10 @@ abstract class PhabricatorStandardCustomField
           $this->setCaption($value);
           break;
         case 'required':
-          $this->setRequired($value);
-          $this->setFieldError(true);
+          if ($value) {
+            $this->setRequired($value);
+            $this->setFieldError(true);
+          }
           break;
         case 'default':
           $this->setFieldValue($value);
@@ -140,6 +144,15 @@ abstract class PhabricatorStandardCustomField
 
   public function getRequired() {
     return $this->required;
+  }
+
+  public function setRawStandardFieldKey($raw_key) {
+    $this->rawKey = $raw_key;
+    return $this;
+  }
+
+  public function getRawStandardFieldKey() {
+    return $this->rawKey;
   }
 
 
@@ -200,13 +213,22 @@ abstract class PhabricatorStandardCustomField
     $this->setFieldValue($value);
   }
 
-  public function renderEditControl() {
+  public function getInstructionsForEdit() {
+    return $this->getFieldConfigValue('instructions');
+  }
+
+  public function getPlaceholder() {
+    return $this->getFieldConfigValue('placeholder', null);
+  }
+
+  public function renderEditControl(array $handles) {
     return id(new AphrontFormTextControl())
       ->setName($this->getFieldKey())
       ->setCaption($this->getCaption())
       ->setValue($this->getFieldValue())
       ->setError($this->getFieldError())
-      ->setLabel($this->getFieldName());
+      ->setLabel($this->getFieldName())
+      ->setPlaceholder($this->getPlaceholder());
   }
 
   public function newStorageObject() {
@@ -217,7 +239,7 @@ abstract class PhabricatorStandardCustomField
     return $this->getFieldConfigValue('view', true);
   }
 
-  public function renderPropertyViewValue() {
+  public function renderPropertyViewValue(array $handles) {
     if (!strlen($this->getFieldValue())) {
       return null;
     }
@@ -240,6 +262,10 @@ abstract class PhabricatorStandardCustomField
     return array();
   }
 
+  public function buildOrderIndex() {
+    return null;
+  }
+
   public function readApplicationSearchValueFromRequest(
     PhabricatorApplicationSearchEngine $engine,
     AphrontRequest $request) {
@@ -256,8 +282,7 @@ abstract class PhabricatorStandardCustomField
   public function appendToApplicationSearchForm(
     PhabricatorApplicationSearchEngine $engine,
     AphrontFormView $form,
-    $value,
-    array $handles) {
+    $value) {
     return;
   }
 
@@ -334,8 +359,7 @@ abstract class PhabricatorStandardCustomField
   }
 
   public function getApplicationTransactionTitleForFeed(
-    PhabricatorApplicationTransaction $xaction,
-    PhabricatorFeedStory $story) {
+    PhabricatorApplicationTransaction $xaction) {
 
     $author_phid = $xaction->getAuthorPHID();
     $object_phid = $xaction->getObjectPHID();
@@ -367,5 +391,34 @@ abstract class PhabricatorStandardCustomField
     }
   }
 
+  public function getHeraldFieldValue() {
+    return $this->getFieldValue();
+  }
+
+  public function getFieldControlID($key = null) {
+    $key = coalesce($key, $this->getRawStandardFieldKey());
+    return 'std:control:'.$key;
+  }
+
+  public function shouldAppearInGlobalSearch() {
+    return $this->getFieldConfigValue('fulltext', false);
+  }
+
+  public function updateAbstractDocument(
+    PhabricatorSearchAbstractDocument $document) {
+
+    $field_key = $this->getFieldConfigValue('fulltext');
+
+    // If the caller or configuration didn't specify a valid field key,
+    // generate one automatically from the field index.
+    if (!is_string($field_key) || (strlen($field_key) != 4)) {
+      $field_key = '!'.substr($this->getFieldIndex(), 0, 3);
+    }
+
+    $field_value = $this->getFieldValue();
+    if (strlen($field_value)) {
+      $document->addField($field_key, $field_value);
+    }
+  }
 
 }

@@ -2,8 +2,6 @@
 
 /**
  * Isolated HTTP sink for testing.
- *
- * @group aphront
  */
 final class AphrontIsolatedHTTPSink extends AphrontHTTPSink {
 
@@ -21,6 +19,10 @@ final class AphrontIsolatedHTTPSink extends AphrontHTTPSink {
 
   protected function emitData($data) {
     $this->data .= $data;
+  }
+
+  protected function isWritable() {
+    return true;
   }
 
   public function getEmittedHTTPStatus() {

@@ -25,14 +25,14 @@ abstract class PassphraseController extends PhabricatorController {
     return $this->buildSideNavView(true)->getMenu();
   }
 
-  public function buildApplicationCrumbs() {
+  protected function buildApplicationCrumbs() {
     $crumbs = parent::buildApplicationCrumbs();
 
     $crumbs->addAction(
       id(new PHUIListItemView())
         ->setName(pht('Create Credential'))
         ->setHref($this->getApplicationURI('create/'))
-        ->setIcon('create'));
+        ->setIcon('fa-plus-square'));
 
     return $crumbs;
   }

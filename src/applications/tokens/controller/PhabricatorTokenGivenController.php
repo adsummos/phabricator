@@ -2,6 +2,10 @@
 
 final class PhabricatorTokenGivenController extends PhabricatorTokenController {
 
+  public function shouldAllowPublic() {
+    return true;
+  }
+
   public function processRequest() {
     $request = $this->getRequest();
     $user = $request->getUser();
@@ -35,6 +39,7 @@ final class PhabricatorTokenGivenController extends PhabricatorTokenController {
     }
 
     $list = new PHUIObjectItemListView();
+    $list->setStackable(true);
     foreach ($tokens_given as $token_given) {
       $handle = $handles[$token_given->getObjectPHID()];
       $token = idx($tokens, $token_given->getTokenPHID());
@@ -53,9 +58,11 @@ final class PhabricatorTokenGivenController extends PhabricatorTokenController {
 
       $list->addItem($item);
     }
-    $list->setPager($pager);
-
     $title = pht('Tokens Given');
+
+    $box = id(new PHUIObjectBoxView())
+      ->setHeaderText($title)
+      ->appendChild($list);
 
     $nav = $this->buildSideNav();
     $nav->setCrumbs(
@@ -63,13 +70,13 @@ final class PhabricatorTokenGivenController extends PhabricatorTokenController {
         ->addTextCrumb($title));
     $nav->selectFilter('given/');
 
-    $nav->appendChild($list);
+    $nav->appendChild($box);
+    $nav->appendChild($pager);
 
     return $this->buildApplicationPage(
       $nav,
       array(
         'title' => $title,
-        'device' => true,
       ));
   }
 

@@ -1,8 +1,5 @@
 <?php
 
-/**
- * @group paste
- */
 final class PhabricatorPasteConfigOptions
   extends PhabricatorApplicationConfigOptions {
 
@@ -14,18 +11,21 @@ final class PhabricatorPasteConfigOptions
     return pht('Configure Paste.');
   }
 
+  public function getFontIcon() {
+    return 'fa-paste';
+  }
+
+  public function getGroup() {
+    return 'apps';
+  }
+
   public function getOptions() {
     return array(
-      $this->newOption(
-        'metamta.paste.public-create-email',
-        'string',
-        null)
-        ->setDescription(pht('Allow creating pastes via email.')),
       $this->newOption(
         'metamta.paste.subject-prefix',
         'string',
         '[Paste]')
-        ->setDescription(pht('Subject prefix for paste email.'))
+        ->setDescription(pht('Subject prefix for Paste email.')),
     );
   }
 

@@ -7,25 +7,16 @@ final class PhabricatorStandardCustomFieldUsers
     return 'users';
   }
 
-  public function renderEditControl() {
-    $handles = array();
+  public function renderEditControl(array $handles) {
     $value = $this->getFieldValue();
-    if ($value) {
-
-      // TODO: Surface and batch.
-
-      $handles = id(new PhabricatorHandleQuery())
-        ->setViewer($this->getViewer())
-        ->withPHIDs($value)
-        ->execute();
-    }
 
     $control = id(new AphrontFormTokenizerControl())
+      ->setUser($this->getViewer())
       ->setLabel($this->getFieldName())
       ->setName($this->getFieldKey())
-      ->setDatasource('/typeahead/common/accounts/')
+      ->setDatasource(new PhabricatorPeopleDatasource())
       ->setCaption($this->getCaption())
-      ->setValue($handles);
+      ->setValue(nonempty($value, array()));
 
     $limit = $this->getFieldConfigValue('limit');
     if ($limit) {
@@ -38,29 +29,19 @@ final class PhabricatorStandardCustomFieldUsers
   public function appendToApplicationSearchForm(
     PhabricatorApplicationSearchEngine $engine,
     AphrontFormView $form,
-    $value,
-    array $handles) {
+    $value) {
 
     $control = id(new AphrontFormTokenizerControl())
       ->setLabel($this->getFieldName())
       ->setName($this->getFieldKey())
-      ->setDatasource('/typeahead/common/accounts/')
-      ->setValue($handles);
+      ->setDatasource(new PhabricatorPeopleDatasource())
+      ->setValue(nonempty($value, array()));
 
-    $form->appendChild($control);
+    $form->appendControl($control);
   }
 
-
-  public function getApplicationTransactionTitle(
-    PhabricatorApplicationTransaction $xaction) {
-    $author_phid = $xaction->getAuthorPHID();
-
-    // TODO: Show added/removed and render handles. We don't have handle
-    // surfacing or batching yet so this is a bit awkward right now.
-
-    return pht(
-      '%s updated %s.',
-      $xaction->renderHandleLink($author_phid),
-      $this->getFieldName());
+  public function getHeraldFieldValueType($condition) {
+    return HeraldAdapter::VALUE_USER;
   }
+
 }

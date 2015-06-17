@@ -29,10 +29,12 @@ final class DifferentialRevisionLandController extends DifferentialController {
       $this->pushStrategy = newv($this->strategyClass, array());
     } else {
       throw new Exception(
-        "Strategy type must be a valid class name and must subclass ".
-        "DifferentialLandingStrategy. ".
-        "'{$this->strategyClass}' is not a subclass of ".
-        "DifferentialLandingStrategy.");
+        pht(
+          "Strategy type must be a valid class name and must subclass ".
+          "%s. '%s' is not a subclass of %s",
+          'DifferentialLandingStrategy',
+          $this->strategyClass,
+          'DifferentialLandingStrategy'));
     }
 
     if ($request->isDialogFormPost()) {
@@ -40,10 +42,10 @@ final class DifferentialRevisionLandController extends DifferentialController {
       $text = '';
       try {
         $response = $this->attemptLand($revision, $request);
-        $title = pht("Success!");
-        $text = pht("Revision was successfully landed.");
+        $title = pht('Success!');
+        $text = pht('Revision was successfully landed.');
       } catch (Exception $ex) {
-        $title = pht("Failed to land revision");
+        $title = pht('Failed to land revision');
         if ($ex instanceof PhutilProxyException) {
           $text = hsprintf(
             '%s:<br><pre>%s</pre>',
@@ -52,7 +54,7 @@ final class DifferentialRevisionLandController extends DifferentialController {
         } else {
           $text = phutil_tag('pre', array(), $ex->getMessage());
         }
-        $text = id(new AphrontErrorView())
+        $text = id(new PHUIInfoView())
            ->appendChild($text);
       }
 
@@ -76,7 +78,7 @@ final class DifferentialRevisionLandController extends DifferentialController {
       if (is_string($is_disabled)) {
         $explain = $is_disabled;
       } else {
-        $explain = pht("This action is not currently enabled.");
+        $explain = pht('This action is not currently enabled.');
       }
       $dialog = id(new AphrontDialogView())
         ->setUser($viewer)
@@ -91,13 +93,13 @@ final class DifferentialRevisionLandController extends DifferentialController {
     $prompt = hsprintf('%s<br><br>%s',
       pht(
         'This will squash and rebase revision %s, and push it to '.
-          'the default / master branch.',
+        'the default / master branch.',
         $revision_id),
       pht('It is an experimental feature and may not work.'));
 
     $dialog = id(new AphrontDialogView())
       ->setUser($viewer)
-      ->setTitle(pht("Land Revision %s?", $revision_id))
+      ->setTitle(pht('Land Revision %s?', $revision_id))
       ->appendChild($prompt)
       ->setSubmitURI($request->getRequestURI())
       ->addSubmitButton(pht('Land it!'))
@@ -109,19 +111,19 @@ final class DifferentialRevisionLandController extends DifferentialController {
   private function attemptLand($revision, $request) {
     $status = $revision->getStatus();
     if ($status != ArcanistDifferentialRevisionStatus::ACCEPTED) {
-      throw new Exception("Only Accepted revisions can be landed.");
+      throw new Exception(pht('Only Accepted revisions can be landed.'));
     }
 
     $repository = $revision->getRepository();
 
     if ($repository === null) {
-      throw new Exception("revision is not attached to a repository.");
+      throw new Exception(pht('Revision is not attached to a repository.'));
     }
 
     $can_push = PhabricatorPolicyFilter::hasCapability(
       $request->getUser(),
       $repository,
-      DiffusionCapabilityPush::CAPABILITY);
+      DiffusionPushCapability::CAPABILITY);
 
     if (!$can_push) {
       throw new Exception(
@@ -141,6 +143,15 @@ final class DifferentialRevisionLandController extends DifferentialController {
     }
 
     $lock->unlock();
+
+    $looksoon = new ConduitCall(
+      'diffusion.looksoon',
+      array(
+        'callsigns' => array($repository->getCallsign()),
+      ));
+    $looksoon->setUser($request->getUser());
+    $looksoon->execute();
+
     return $response;
   }
 
@@ -150,5 +161,5 @@ final class DifferentialRevisionLandController extends DifferentialController {
     $lock->lock();
     return $lock;
   }
-}
 
+}

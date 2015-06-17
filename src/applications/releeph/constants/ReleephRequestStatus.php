@@ -1,6 +1,6 @@
 <?php
 
-final class ReleephRequestStatus {
+final class ReleephRequestStatus extends Phobject {
 
   const STATUS_REQUESTED       = 1;
   const STATUS_NEEDS_PICK      = 2;  // aka approved
@@ -15,9 +15,9 @@ final class ReleephRequestStatus {
       self::STATUS_REQUESTED       => pht('Requested'),
       self::STATUS_REJECTED        => pht('Rejected'),
       self::STATUS_ABANDONED       => pht('Abandoned'),
-      self::STATUS_PICKED          => pht('Picked'),
+      self::STATUS_PICKED          => pht('Pulled'),
       self::STATUS_REVERTED        => pht('Reverted'),
-      self::STATUS_NEEDS_PICK      => pht('Needs Pick'),
+      self::STATUS_NEEDS_PICK      => pht('Needs Pull'),
       self::STATUS_NEEDS_REVERT    => pht('Needs Revert'),
     );
     return idx($descriptions, $status, '??');

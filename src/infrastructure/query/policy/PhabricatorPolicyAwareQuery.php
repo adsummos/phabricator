@@ -29,13 +29,21 @@
 abstract class PhabricatorPolicyAwareQuery extends PhabricatorOffsetPagedQuery {
 
   private $viewer;
-  private $raisePolicyExceptions;
   private $parentQuery;
   private $rawResultLimit;
   private $capabilities;
   private $workspace = array();
+  private $inFlightPHIDs = array();
   private $policyFilteredPHIDs = array();
-  private $canUseApplication;
+
+  /**
+   * Should we continue or throw an exception when a query result is filtered
+   * by policy rules?
+   *
+   * Values are `true` (raise exceptions), `false` (do not raise exceptions)
+   * and `null` (inherit from parent query, with no exceptions by default).
+   */
+  private $raisePolicyExceptions;
 
 
 /* -(  Query Configuration  )------------------------------------------------ */
@@ -163,7 +171,7 @@ abstract class PhabricatorPolicyAwareQuery extends PhabricatorOffsetPagedQuery {
     }
 
     if (count($results) > 1) {
-      throw new Exception("Expected a single result!");
+      throw new Exception(pht('Expected a single result!'));
     }
 
     if (!$results) {
@@ -182,11 +190,11 @@ abstract class PhabricatorPolicyAwareQuery extends PhabricatorOffsetPagedQuery {
    */
   final public function execute() {
     if (!$this->viewer) {
-      throw new Exception("Call setViewer() before execute()!");
+      throw new PhutilInvalidStateException('setViewer');
     }
 
     $parent_query = $this->getParentQuery();
-    if ($parent_query) {
+    if ($parent_query && ($this->raisePolicyExceptions === null)) {
       $this->setRaisePolicyExceptions(
         $parent_query->shouldRaisePolicyExceptions());
     }
@@ -302,23 +310,52 @@ abstract class PhabricatorPolicyAwareQuery extends PhabricatorOffsetPagedQuery {
   private function getPolicyFilter() {
     $filter = new PhabricatorPolicyFilter();
     $filter->setViewer($this->viewer);
-    if (!$this->capabilities) {
-      $capabilities = array(
-        PhabricatorPolicyCapability::CAN_VIEW,
-      );
-    } else {
-      $capabilities = $this->capabilities;
-    }
+    $capabilities = $this->getRequiredCapabilities();
     $filter->requireCapabilities($capabilities);
     $filter->raisePolicyExceptions($this->shouldRaisePolicyExceptions());
 
     return $filter;
   }
 
+  protected function getRequiredCapabilities() {
+    if ($this->capabilities) {
+      return $this->capabilities;
+    }
+
+    return array(
+      PhabricatorPolicyCapability::CAN_VIEW,
+    );
+  }
+
+  protected function applyPolicyFilter(array $objects, array $capabilities) {
+    if ($this->shouldDisablePolicyFiltering()) {
+      return $objects;
+    }
+    $filter = $this->getPolicyFilter();
+    $filter->requireCapabilities($capabilities);
+    return $filter->apply($objects);
+  }
+
   protected function didRejectResult(PhabricatorPolicyInterface $object) {
+    // Some objects (like commits) may be rejected because related objects
+    // (like repositories) can not be loaded. In some cases, we may need these
+    // related objects to determine the object policy, so it's expected that
+    // we may occasionally be unable to determine the policy.
+
+    try {
+      $policy = $object->getPolicy(PhabricatorPolicyCapability::CAN_VIEW);
+    } catch (Exception $ex) {
+      $policy = null;
+    }
+
+    // Mark this object as filtered so handles can render "Restricted" instead
+    // of "Unknown".
+    $phid = $object->getPHID();
+    $this->addPolicyFilteredPHIDs(array($phid => $phid));
+
     $this->getPolicyFilter()->rejectObject(
       $object,
-      $object->getPolicy(PhabricatorPolicyCapability::CAN_VIEW),
+      $policy,
       PhabricatorPolicyCapability::CAN_VIEW);
   }
 
@@ -403,7 +440,7 @@ abstract class PhabricatorPolicyAwareQuery extends PhabricatorOffsetPagedQuery {
    * searches both the current query's workspace and the workspaces of parent
    * queries.
    *
-   * @param list<phid> List of PHIDs to retreive.
+   * @param list<phid> List of PHIDs to retrieve.
    * @return this
    * @task workspace
    */
@@ -444,6 +481,39 @@ abstract class PhabricatorPolicyAwareQuery extends PhabricatorOffsetPagedQuery {
     }
 
     return $map;
+  }
+
+
+  /**
+   * Mark PHIDs as in flight.
+   *
+   * PHIDs which are "in flight" are actively being queried for. Using this
+   * list can prevent infinite query loops by aborting queries which cycle.
+   *
+   * @param list<phid> List of PHIDs which are now in flight.
+   * @return this
+   */
+  public function putPHIDsInFlight(array $phids) {
+    foreach ($phids as $phid) {
+      $this->inFlightPHIDs[$phid] = $phid;
+    }
+    return $this;
+  }
+
+
+  /**
+   * Get PHIDs which are currently in flight.
+   *
+   * PHIDs which are "in flight" are actively being queried for.
+   *
+   * @return map<phid, phid> PHIDs currently in flight.
+   */
+  public function getPHIDsInFlight() {
+    $results = $this->inFlightPHIDs;
+    if ($this->getParentQuery()) {
+      $results += $this->getParentQuery()->getPHIDsInFlight();
+    }
+    return $results;
   }
 
 
@@ -608,21 +678,13 @@ abstract class PhabricatorPolicyAwareQuery extends PhabricatorOffsetPagedQuery {
    *   execute the query.
    */
   public function canViewerUseQueryApplication() {
-    if ($this->canUseApplication === null) {
-      $class = $this->getQueryApplicationClass();
-      if (!$class) {
-        $this->canUseApplication = true;
-      } else {
-        $result = id(new PhabricatorApplicationQuery())
-          ->setViewer($this->getViewer())
-          ->withClasses(array($class))
-          ->execute();
-
-        $this->canUseApplication = (bool)$result;
-      }
+    $class = $this->getQueryApplicationClass();
+    if (!$class) {
+      return true;
     }
 
-    return $this->canUseApplication;
+    $viewer = $this->getViewer();
+    return PhabricatorApplication::isClassInstalledForViewer($class, $viewer);
   }
 
 }

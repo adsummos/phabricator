@@ -21,6 +21,7 @@ final class PhabricatorSubscriptionsUIEventListener
 
   private function handleActionEvent($event) {
     $user = $event->getUser();
+    $user_phid = $user->getPHID();
     $object = $event->getValue('object');
 
     if (!$object || !$object->getPHID()) {
@@ -33,32 +34,31 @@ final class PhabricatorSubscriptionsUIEventListener
       return;
     }
 
-    if (!$object->shouldAllowSubscription($user->getPHID())) {
+    if (!$object->shouldAllowSubscription($user_phid)) {
       // This object doesn't allow the viewer to subscribe.
       return;
     }
 
-    if ($object->isAutomaticallySubscribed($user->getPHID())) {
+    if ($user_phid && $object->isAutomaticallySubscribed($user_phid)) {
       $sub_action = id(new PhabricatorActionView())
         ->setWorkflow(true)
         ->setDisabled(true)
         ->setRenderAsForm(true)
         ->setHref('/subscriptions/add/'.$object->getPHID().'/')
         ->setName(pht('Automatically Subscribed'))
-        ->setIcon('enable');
+        ->setIcon('fa-check-circle lightgreytext');
     } else {
       $subscribed = false;
       if ($user->isLoggedIn()) {
         $src_phid = $object->getPHID();
-        $dst_phid = $user->getPHID();
-        $edge_type = PhabricatorEdgeConfig::TYPE_OBJECT_HAS_SUBSCRIBER;
+        $edge_type = PhabricatorObjectHasSubscriberEdgeType::EDGECONST;
 
         $edges = id(new PhabricatorEdgeQuery())
           ->withSourcePHIDs(array($src_phid))
           ->withEdgeTypes(array($edge_type))
-          ->withDestinationPHIDs(array($user->getPHID()))
+          ->withDestinationPHIDs(array($user_phid))
           ->execute();
-        $subscribed = isset($edges[$src_phid][$edge_type][$dst_phid]);
+        $subscribed = isset($edges[$src_phid][$edge_type][$user_phid]);
       }
 
       if ($subscribed) {
@@ -67,14 +67,14 @@ final class PhabricatorSubscriptionsUIEventListener
           ->setRenderAsForm(true)
           ->setHref('/subscriptions/delete/'.$object->getPHID().'/')
           ->setName(pht('Unsubscribe'))
-          ->setIcon('disable');
+          ->setIcon('fa-minus-circle');
       } else {
         $sub_action = id(new PhabricatorActionView())
           ->setWorkflow(true)
           ->setRenderAsForm(true)
           ->setHref('/subscriptions/add/'.$object->getPHID().'/')
           ->setName(pht('Subscribe'))
-          ->setIcon('check');
+          ->setIcon('fa-plus-circle');
       }
 
       if (!$user->isLoggedIn()) {
@@ -113,14 +113,13 @@ final class PhabricatorSubscriptionsUIEventListener
         ->setViewer($user)
         ->withPHIDs($subscribers)
         ->execute();
-      $sub_view = array();
-      foreach ($subscribers as $subscriber) {
-        $sub_view[] = $handles[$subscriber]->renderLink();
-      }
-      $sub_view = phutil_implode_html(', ', $sub_view);
     } else {
-      $sub_view = phutil_tag('em', array(), pht('None'));
+      $handles = array();
     }
+    $sub_view = id(new SubscriptionListStringBuilder())
+      ->setObjectPHID($object->getPHID())
+      ->setHandles($handles)
+      ->buildPropertyString();
 
     $view = $event->getValue('view');
     $view->addProperty(pht('Subscribers'), $sub_view);

@@ -1,10 +1,12 @@
 <?php
 
 final class DifferentialInlineComment
+  extends Phobject
   implements PhabricatorInlineCommentInterface {
 
   private $proxy;
   private $syntheticAuthor;
+  private $isGhost;
 
   public function __construct() {
     $this->proxy = new DifferentialTransactionComment();
@@ -14,7 +16,7 @@ final class DifferentialInlineComment
     $this->proxy = clone $this->proxy;
   }
 
-  public function save() {
+  public function getTransactionCommentForSave() {
     $content_source = PhabricatorContentSource::newForSource(
       PhabricatorContentSource::SOURCE_LEGACY,
       array());
@@ -23,8 +25,22 @@ final class DifferentialInlineComment
       ->setViewPolicy('public')
       ->setEditPolicy($this->getAuthorPHID())
       ->setContentSource($content_source)
-      ->setCommentVersion(1)
-      ->save();
+      ->attachIsHidden(false)
+      ->setCommentVersion(1);
+
+    return $this->proxy;
+  }
+
+  public function openTransaction() {
+    $this->proxy->openTransaction();
+  }
+
+  public function saveTransaction() {
+    $this->proxy->saveTransaction();
+  }
+
+  public function save() {
+    $this->getTransactionCommentForSave()->save();
 
     return $this;
   }
@@ -35,8 +51,26 @@ final class DifferentialInlineComment
     return $this;
   }
 
+  public function supportsHiding() {
+    if ($this->getSyntheticAuthor()) {
+      return false;
+    }
+    return true;
+  }
+
+  public function isHidden() {
+    if (!$this->supportsHiding()) {
+      return false;
+    }
+    return $this->proxy->getIsHidden();
+  }
+
   public function getID() {
     return $this->proxy->getID();
+  }
+
+  public function getPHID() {
+    return $this->proxy->getPHID();
   }
 
   public static function newFromModernComment(
@@ -74,7 +108,7 @@ final class DifferentialInlineComment
   }
 
   public function isDraft() {
-    return !$this->getCommentID();
+    return !$this->proxy->getTransactionPHID();
   }
 
   public function setChangesetID($id) {
@@ -135,6 +169,10 @@ final class DifferentialInlineComment
     return $this;
   }
 
+  public function getRevisionPHID() {
+    return $this->proxy->getRevisionPHID();
+  }
+
   // Although these are purely transitional, they're also *extra* dumb.
 
   public function setRevisionID($revision_id) {
@@ -161,16 +199,61 @@ final class DifferentialInlineComment
   // the future transaction.
 
   public function setCommentID($id) {
-    $this->proxy->setLegacyCommentID($id);
     $this->proxy->setTransactionPHID(
       PhabricatorPHID::generateNewPHID(
-        PhabricatorApplicationTransactionPHIDTypeTransaction::TYPECONST,
-        DifferentialPHIDTypeRevision::TYPECONST));
+        PhabricatorApplicationTransactionTransactionPHIDType::TYPECONST,
+        DifferentialRevisionPHIDType::TYPECONST));
     return $this;
   }
 
-  public function getCommentID() {
-    return $this->proxy->getLegacyCommentID();
+  public function setReplyToCommentPHID($phid) {
+    $this->proxy->setReplyToCommentPHID($phid);
+    return $this;
+  }
+
+  public function getReplyToCommentPHID() {
+    return $this->proxy->getReplyToCommentPHID();
+  }
+
+  public function setHasReplies($has_replies) {
+    $this->proxy->setHasReplies($has_replies);
+    return $this;
+  }
+
+  public function getHasReplies() {
+    return $this->proxy->getHasReplies();
+  }
+
+  public function setIsDeleted($is_deleted) {
+    $this->proxy->setIsDeleted($is_deleted);
+    return $this;
+  }
+
+  public function getIsDeleted() {
+    return $this->proxy->getIsDeleted();
+  }
+
+  public function setFixedState($state) {
+    $this->proxy->setFixedState($state);
+    return $this;
+  }
+
+  public function getFixedState() {
+    return $this->proxy->getFixedState();
+  }
+
+  public function setIsGhost($is_ghost) {
+    $this->isGhost = $is_ghost;
+    return $this;
+  }
+
+  public function getIsGhost() {
+    return $this->isGhost;
+  }
+
+  public function makeEphemeral() {
+    $this->proxy->makeEphemeral();
+    return $this;
   }
 
 
@@ -196,7 +279,7 @@ final class DifferentialInlineComment
 
   public function shouldUseMarkupCache($field) {
     // Only cache submitted comments.
-    return ($this->getID() && $this->getCommentID());
+    return ($this->getID() && !$this->isDraft());
   }
 
 }

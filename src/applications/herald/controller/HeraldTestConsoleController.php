@@ -47,9 +47,14 @@ final class HeraldTestConsoleController extends HeraldController {
           } else if ($object instanceof PholioMock) {
             $adapter = id(new HeraldPholioMockAdapter())
               ->setMock($object);
+          } else if ($object instanceof PhrictionDocument) {
+            $adapter = id(new PhrictionDocumentHeraldAdapter())
+              ->setDocument($object);
           } else {
-            throw new Exception("Can not build adapter for object!");
+            throw new Exception(pht('Can not build adapter for object!'));
           }
+
+          $adapter->setIsNewObject(false);
 
           $rules = id(new HeraldRuleQuery())
             ->setViewer($user)
@@ -96,17 +101,18 @@ final class HeraldTestConsoleController extends HeraldController {
       ->setFormErrors($errors)
       ->setForm($form);
 
+    $nav = $this->buildSideNavView();
+    $nav->selectFilter('test');
+    $nav->appendChild($box);
+
     $crumbs = id($this->buildApplicationCrumbs())
-      ->addTextCrumb(
-        pht('Transcripts'),
-        $this->getApplicationURI('/transcript/'))
       ->addTextCrumb(pht('Test Console'));
+    $nav->setCrumbs($crumbs);
 
     return $this->buildApplicationPage(
-      $box,
+      $nav,
       array(
         'title' => pht('Test Console'),
-        'device' => true,
       ));
   }
 

@@ -1,0 +1,65 @@
+@title Internationalization
+@group developer
+
+Describes Phabricator translation and localization.
+
+Overview
+========
+
+Phabricator partially supports internationalization, but many of the tools
+are missing or in a prototype state.
+
+This document very briefly summarizes some of what exists today.
+
+Writing Translatable Code
+========
+
+Strings are marked for translation with @{function@libphutil:pht}.
+
+Adding a New Locale
+=========
+
+To add a new locale, subclass @{class:PhutilLocale}.
+
+Translating Strings
+========
+
+To translate strings, subclass @{class:PhutilTranslation}.
+
+Singular and Plural
+========
+
+Different languages have various rules for using singular and plural. All you
+need to do is to call @{function@libphutil:pht} with a text that is suitable for
+both forms. Example:
+
+  pht('%d beer(s)', $count);
+
+Translators will translate this text for all different forms the language uses:
+
+  // English translation
+  array('%d beer', '%d beers');
+
+  // Czech translation
+  array('%d pivo', '%d piva', '%d piv');
+
+The ugly identifier passed to @{function@libphutil:pht} will remain in the text
+only if the translation doesn't exist.
+
+Male and Female
+========
+
+Different languages use different words for talking about males, females and
+unknown genders. Callsites have to call @{function@libphutil:pht} passing
+@{class:PhabricatorUser} (or other implementation of
+@{interface@libphutil:PhutilPerson}) if talking about the user. Example:
+
+  pht('%s wrote', $actor);
+
+Translators will create this translations:
+
+  // English translation
+  '%s wrote';
+
+  // Czech translation
+  array('%s napsal', '%s napsala');

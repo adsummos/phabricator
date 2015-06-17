@@ -6,16 +6,16 @@ $x_table = new PhabricatorPasteTransaction();
 $conn_w = $table->establishConnection('w');
 $conn_w->openTransaction();
 
-echo "Adding transactions for existing paste objects...\n";
+echo pht('Adding transactions for existing paste objects...')."\n";
 
 $rows = new LiskRawMigrationIterator($conn_w, 'pastebin_paste');
 foreach ($rows as $row) {
 
   $id = $row['id'];
-  echo "Adding transactions for paste id {$id}...\n";
+  echo pht('Adding transactions for paste id %d...', $id)."\n";
 
   $xaction_phid = PhabricatorPHID::generateNewPHID(
-    PhabricatorApplicationTransactionPHIDTypeTransaction::TYPECONST);
+    PhabricatorApplicationTransactionTransactionPHIDType::TYPECONST);
 
   queryfx(
     $conn_w,
@@ -30,7 +30,7 @@ foreach ($rows as $row) {
     $row['phid'],
     'public',
     $row['authorPHID'],
-    PhabricatorPasteTransaction::TYPE_CREATE,
+    PhabricatorPasteTransaction::TYPE_CONTENT,
     'null',
     $row['filePHID'],
     PhabricatorContentSource::newForSource(
@@ -45,4 +45,4 @@ foreach ($rows as $row) {
 
 $conn_w->saveTransaction();
 
-echo "Done.\n";
+echo pht('Done.')."\n";

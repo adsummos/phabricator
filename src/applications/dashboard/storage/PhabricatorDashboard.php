@@ -4,28 +4,106 @@
  * A collection of dashboard panels with a specific layout.
  */
 final class PhabricatorDashboard extends PhabricatorDashboardDAO
-  implements PhabricatorPolicyInterface {
+  implements
+    PhabricatorApplicationTransactionInterface,
+    PhabricatorPolicyInterface,
+    PhabricatorDestructibleInterface {
 
   protected $name;
   protected $viewPolicy;
   protected $editPolicy;
+  protected $layoutConfig = array();
+
+  private $panelPHIDs = self::ATTACHABLE;
+  private $panels = self::ATTACHABLE;
 
   public static function initializeNewDashboard(PhabricatorUser $actor) {
     return id(new PhabricatorDashboard())
       ->setName('')
       ->setViewPolicy(PhabricatorPolicies::POLICY_USER)
-      ->setEditPolicy($actor->getPHID());
+      ->setEditPolicy($actor->getPHID())
+      ->attachPanels(array())
+      ->attachPanelPHIDs(array());
   }
 
-  public function getConfiguration() {
+  public static function copyDashboard(
+    PhabricatorDashboard $dst,
+    PhabricatorDashboard $src) {
+
+    $dst->name = $src->name;
+    $dst->layoutConfig = $src->layoutConfig;
+
+    return $dst;
+  }
+
+  protected function getConfiguration() {
     return array(
       self::CONFIG_AUX_PHID => true,
+      self::CONFIG_SERIALIZATION => array(
+        'layoutConfig' => self::SERIALIZATION_JSON,
+      ),
+      self::CONFIG_COLUMN_SCHEMA => array(
+        'name' => 'text255',
+      ),
     ) + parent::getConfiguration();
   }
 
   public function generatePHID() {
     return PhabricatorPHID::generateNewPHID(
-      PhabricatorDashboardPHIDTypeDashboard::TYPECONST);
+      PhabricatorDashboardDashboardPHIDType::TYPECONST);
+  }
+
+  public function getLayoutConfigObject() {
+    return PhabricatorDashboardLayoutConfig::newFromDictionary(
+      $this->getLayoutConfig());
+  }
+
+  public function setLayoutConfigFromObject(
+    PhabricatorDashboardLayoutConfig $object) {
+    $this->setLayoutConfig($object->toDictionary());
+    return $this;
+  }
+
+  public function attachPanelPHIDs(array $phids) {
+    $this->panelPHIDs = $phids;
+    return $this;
+  }
+
+  public function getPanelPHIDs() {
+    return $this->assertAttached($this->panelPHIDs);
+  }
+
+  public function attachPanels(array $panels) {
+    assert_instances_of($panels, 'PhabricatorDashboardPanel');
+    $this->panels = $panels;
+    return $this;
+  }
+
+  public function getPanels() {
+    return $this->assertAttached($this->panels);
+  }
+
+
+/* -(  PhabricatorApplicationTransactionInterface  )------------------------- */
+
+
+  public function getApplicationTransactionEditor() {
+    return new PhabricatorDashboardTransactionEditor();
+  }
+
+  public function getApplicationTransactionObject() {
+    return $this;
+  }
+
+  public function getApplicationTransactionTemplate() {
+    return new PhabricatorDashboardTransaction();
+  }
+
+  public function willRenderTimeline(
+    PhabricatorApplicationTransactionView $timeline,
+    AphrontRequest $request) {
+
+    return $timeline;
   }
 
 
@@ -55,5 +133,25 @@ final class PhabricatorDashboard extends PhabricatorDashboardDAO
   public function describeAutomaticCapability($capability) {
     return null;
   }
+
+
+/* -(  PhabricatorDestructibleInterface  )----------------------------------- */
+
+
+  public function destroyObjectPermanently(
+    PhabricatorDestructionEngine $engine) {
+
+    $this->openTransaction();
+      $installs = id(new PhabricatorDashboardInstall())->loadAllWhere(
+        'dashboardPHID = %s',
+        $this->getPHID());
+      foreach ($installs as $install) {
+        $install->delete();
+      }
+
+      $this->delete();
+    $this->saveTransaction();
+  }
+
 
 }

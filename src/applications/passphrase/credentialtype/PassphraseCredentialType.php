@@ -33,6 +33,14 @@ abstract class PassphraseCredentialType extends Phobject {
     return $types;
   }
 
+  public static function getAllProvidesTypes() {
+    $types = array();
+    foreach (self::getAllTypes() as $type) {
+      $types[] = $type->getProvidesType();
+    }
+    return array_unique($types);
+  }
+
   public static function getTypeByConstant($constant) {
     $all = self::getAllTypes();
     $all = mpull($all, null, 'getCredentialType');
@@ -47,6 +55,23 @@ abstract class PassphraseCredentialType extends Phobject {
    */
   public function isCreateable() {
     return true;
+  }
+
+
+  public function didInitializeNewCredential(
+    PhabricatorUser $actor,
+    PassphraseCredential $credential) {
+    return $credential;
+  }
+
+  public function hasPublicKey() {
+    return false;
+  }
+
+  public function getPublicKey(
+    PhabricatorUser $viewer,
+    PassphraseCredential $credential) {
+    return null;
   }
 
 
@@ -104,6 +129,10 @@ abstract class PassphraseCredentialType extends Phobject {
     PhutilOpaqueEnvelope $secret,
     PhutilOpaqueEnvelope $password) {
     return $secret;
+  }
+
+  public function shouldRequireUsername() {
+    return true;
   }
 
 }

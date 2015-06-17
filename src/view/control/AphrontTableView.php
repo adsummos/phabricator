@@ -124,6 +124,7 @@ final class AphrontTableView extends AphrontView {
 
     $visibility = array_values($this->columnVisibility);
     $device_visibility = array_values($this->deviceVisibility);
+
     $headers = $this->headers;
     $short_headers = $this->shortHeaders;
     $sort_values = $this->sortValues;
@@ -153,8 +154,8 @@ final class AphrontTableView extends AphrontView {
           $classes[] = $col_classes[$col_num];
         }
 
-        if (empty($device_visiblity[$col_num])) {
-          $classes[] = 'aphront-table-nodevice';
+        if (empty($device_visibility[$col_num])) {
+          $classes[] = 'aphront-table-view-nodevice';
         }
 
         if ($sort_values[$col_num] !== null) {
@@ -235,11 +236,15 @@ final class AphrontTableView extends AphrontView {
     if ($data) {
       $row_num = 0;
       foreach ($data as $row) {
+        $row_size = count($row);
         while (count($row) > count($col_classes)) {
           $col_classes[] = null;
         }
         while (count($row) > count($visibility)) {
           $visibility[] = true;
+        }
+        while (count($row) > count($device_visibility)) {
+          $device_visibility[] = true;
         }
         $tr = array();
         // NOTE: Use of a separate column counter is to allow this to work
@@ -251,6 +256,9 @@ final class AphrontTableView extends AphrontView {
             continue;
           }
           $class = $col_classes[$col_num];
+          if (empty($device_visibility[$col_num])) {
+            $class = trim($class.' aphront-table-view-nodevice');
+          }
           if (!empty($this->cellClasses[$row_num][$col_num])) {
             $class = trim($class.' '.$this->cellClasses[$row_num][$col_num]);
           }
@@ -281,15 +289,21 @@ final class AphrontTableView extends AphrontView {
           coalesce($this->noDataString, pht('No data available.'))));
     }
 
-    $table_class = 'aphront-table-view';
+    $classes = array();
+    $classes[] = 'aphront-table-view';
     if ($this->className !== null) {
-      $table_class .= ' '.$this->className;
+      $classes[] = $this->className;
     }
     if ($this->deviceReadyTable) {
-      $table_class .= ' aphront-table-view-device-ready';
+      $classes[] = 'aphront-table-view-device-ready';
     }
 
-    $html = phutil_tag('table', array('class' => $table_class), $table);
+    $html = phutil_tag(
+      'table',
+      array(
+        'class' => implode(' ', $classes),
+      ),
+      $table);
     return phutil_tag_div('aphront-table-wrap', $html);
   }
 
@@ -320,4 +334,3 @@ final class AphrontTableView extends AphrontView {
 
 
 }
-

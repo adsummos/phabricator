@@ -1,14 +1,9 @@
 <?php
 
-/**
- * @group conpherence
- */
 final class ConpherenceNotificationPanelController
   extends ConpherenceController {
 
-  public function processRequest() {
-
-    $request = $this->getRequest();
+  public function handleRequest(AphrontRequest $request) {
     $user = $request->getUser();
     $conpherences = array();
     $unread_status = ConpherenceParticipationStatus::BEHIND;
@@ -22,6 +17,9 @@ final class ConpherenceNotificationPanelController
       $conpherences = id(new ConpherenceThreadQuery())
         ->setViewer($user)
         ->withPHIDs(array_keys($participant_data))
+        ->needCropPics(true)
+        ->needTransactions(true)
+        ->setTransactionLimit(3 * 5)
         ->needParticipantCache(true)
         ->execute();
     }
@@ -79,16 +77,14 @@ final class ConpherenceNotificationPanelController
 
     $content = hsprintf(
       '<div class="phabricator-notification-header">%s</div>'.
-      '%s'.
-      '<div class="phabricator-notification-view-all">%s</div>',
-      pht('Messages'),
-      $content,
+      '%s',
       phutil_tag(
         'a',
         array(
           'href' => '/conpherence/',
         ),
-        'View All Conpherences'));
+        pht('Messages')),
+      $content);
 
     $unread = id(new ConpherenceParticipantCountQuery())
       ->withParticipantPHIDs(array($user->getPHID()))
@@ -103,4 +99,5 @@ final class ConpherenceNotificationPanelController
 
     return id(new AphrontAjaxResponse())->setContent($json);
   }
+
 }

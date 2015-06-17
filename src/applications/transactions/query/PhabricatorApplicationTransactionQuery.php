@@ -17,10 +17,6 @@ abstract class PhabricatorApplicationTransactionQuery
     return array();
   }
 
-  protected function getReversePaging() {
-    return true;
-  }
-
   public function withPHIDs(array $phids) {
     $this->phids = $phids;
     return $this;
@@ -74,11 +70,12 @@ abstract class PhabricatorApplicationTransactionQuery
 
       $comments = array();
       if ($comment_phids) {
-        $comments = id(new PhabricatorApplicationTransactionCommentQuery())
-          ->setTemplate($table->getApplicationTransactionCommentObject())
-          ->setViewer($this->getViewer())
-          ->withPHIDs($comment_phids)
-          ->execute();
+        $comments =
+          id(new PhabricatorApplicationTransactionTemplatedCommentQuery())
+            ->setTemplate($table->getApplicationTransactionCommentObject())
+            ->setViewer($this->getViewer())
+            ->withPHIDs($comment_phids)
+            ->execute();
         $comments = mpull($comments, null, 'getPHID');
       }
 
@@ -96,6 +93,31 @@ abstract class PhabricatorApplicationTransactionQuery
       }
     }
 
+    return $xactions;
+  }
+
+  protected function willFilterPage(array $xactions) {
+    $object_phids = array_keys(mpull($xactions, null, 'getObjectPHID'));
+
+    $objects = id(new PhabricatorObjectQuery())
+      ->setViewer($this->getViewer())
+      ->setParentQuery($this)
+      ->withPHIDs($object_phids)
+      ->execute();
+
+    foreach ($xactions as $key => $xaction) {
+      $object_phid = $xaction->getObjectPHID();
+      if (empty($objects[$object_phid])) {
+        unset($xactions[$key]);
+        continue;
+      }
+      $xaction->attachObject($objects[$object_phid]);
+    }
+
+    // NOTE: We have to do this after loading objects, because the objects
+    // may help determine which handles are required (for example, in the case
+    // of custom fields).
+
     if ($this->needHandles) {
       $phids = array();
       foreach ($xactions as $xaction) {
@@ -104,10 +126,8 @@ abstract class PhabricatorApplicationTransactionQuery
       $handles = array();
       $merged = array_mergev($phids);
       if ($merged) {
-        $handles = id(new PhabricatorHandleQuery())
-          ->setViewer($this->getViewer())
-          ->withPHIDs($merged)
-          ->execute();
+        $handles = $this->getViewer()->loadHandles($merged);
+        $handles = iterator_to_array($handles);
       }
       foreach ($xactions as $xaction) {
         $xaction->setHandles(
@@ -120,7 +140,7 @@ abstract class PhabricatorApplicationTransactionQuery
     return $xactions;
   }
 
-  private function buildWhereClause(AphrontDatabaseConnection $conn_r) {
+  protected function buildWhereClause(AphrontDatabaseConnection $conn_r) {
     $where = array();
 
     if ($this->phids) {

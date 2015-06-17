@@ -1,8 +1,5 @@
 <?php
 
-/**
- * @group paste
- */
 abstract class PhabricatorPasteController extends PhabricatorController {
 
   public function buildSideNavView($for_app = false) {
@@ -28,14 +25,14 @@ abstract class PhabricatorPasteController extends PhabricatorController {
     return $this->buildSideNavView(true)->getMenu();
   }
 
-  public function buildApplicationCrumbs() {
+  protected function buildApplicationCrumbs() {
     $crumbs = parent::buildApplicationCrumbs();
 
     $crumbs->addAction(
       id(new PHUIListItemView())
         ->setName(pht('Create Paste'))
         ->setHref($this->getApplicationURI('create/'))
-        ->setIcon('create'));
+        ->setIcon('fa-plus-square'));
 
     return $crumbs;
   }

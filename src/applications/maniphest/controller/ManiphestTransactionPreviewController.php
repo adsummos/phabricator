@@ -1,8 +1,5 @@
 <?php
 
-/**
- * @group maniphest
- */
 final class ManiphestTransactionPreviewController extends ManiphestController {
 
   private $id;
@@ -61,43 +58,45 @@ final class ManiphestTransactionPreviewController extends ManiphestController {
         }
         $transaction->setNewValue($value);
         break;
-      case ManiphestTransaction::TYPE_CCS:
+      case PhabricatorTransactions::TYPE_SUBSCRIBERS:
         if ($value) {
           $value = json_decode($value);
         }
         if (!$value) {
           $value = array();
         }
-        $phids = $value;
-
-        foreach ($task->getCCPHIDs() as $cc_phid) {
+        $phids = array();
+        foreach ($value as $cc_phid) {
           $phids[] = $cc_phid;
-          $value[] = $cc_phid;
         }
-
-        $transaction->setOldValue($task->getCCPHIDs());
-        $transaction->setNewValue($value);
+        $transaction->setOldValue(array());
+        $transaction->setNewValue($phids);
         break;
-      case ManiphestTransaction::TYPE_PROJECTS:
+      case PhabricatorTransactions::TYPE_EDGE:
         if ($value) {
-          $value = json_decode($value);
+          $value = phutil_json_decode($value);
         }
         if (!$value) {
           $value = array();
         }
 
-        $phids = $value;
-        foreach ($task->getProjectPHIDs() as $project_phid) {
+        $phids = array();
+        $value = array_fuse($value);
+        foreach ($value as $project_phid) {
           $phids[] = $project_phid;
-          $value[] = $project_phid;
+          $value[$project_phid] = array('dst' => $project_phid);
         }
 
-        $transaction->setOldValue($task->getProjectPHIDs());
-        $transaction->setNewValue($value);
+        $project_type = PhabricatorProjectObjectHasProjectEdgeType::EDGECONST;
+        $transaction
+          ->setTransactionType(PhabricatorTransactions::TYPE_EDGE)
+          ->setMetadataValue('edge:type', $project_type)
+          ->setOldValue(array())
+          ->setNewValue($value);
         break;
       case ManiphestTransaction::TYPE_STATUS:
         $phids = array();
-        $transaction->setOldvalue($task->getStatus());
+        $transaction->setOldValue($task->getStatus());
         $transaction->setNewValue($value);
         break;
       default:
@@ -114,6 +113,7 @@ final class ManiphestTransactionPreviewController extends ManiphestController {
 
     $engine = new PhabricatorMarkupEngine();
     $engine->setViewer($user);
+    $engine->setContextObject($task);
     if ($transaction->hasComment()) {
       $engine->addObject(
         $transaction->getComment(),
@@ -126,8 +126,7 @@ final class ManiphestTransactionPreviewController extends ManiphestController {
     $view = id(new PhabricatorApplicationTransactionView())
       ->setUser($user)
       ->setTransactions($transactions)
-      ->setIsPreview(true)
-      ->setIsDetailView(true);
+      ->setIsPreview(true);
 
     return id(new AphrontAjaxResponse())
       ->setContent((string)phutil_implode_html('', $view->buildEvents()));

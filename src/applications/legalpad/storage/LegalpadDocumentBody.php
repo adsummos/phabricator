@@ -1,8 +1,5 @@
 <?php
 
-/**
- * @group legalpad
- */
 final class LegalpadDocumentBody extends LegalpadDAO
   implements
     PhabricatorMarkupInterface {
@@ -16,9 +13,20 @@ final class LegalpadDocumentBody extends LegalpadDAO
   protected $title;
   protected $text;
 
-  public function getConfiguration() {
+  protected function getConfiguration() {
     return array(
       self::CONFIG_AUX_PHID => true,
+      self::CONFIG_COLUMN_SCHEMA => array(
+        'version' => 'uint32',
+        'title' => 'text255',
+        'text' => 'text?',
+      ),
+      self::CONFIG_KEY_SCHEMA => array(
+        'key_document' => array(
+          'columns' => array('documentPHID', 'version'),
+          'unique' => true,
+        ),
+      ),
     ) + parent::getConfiguration();
   }
 
@@ -48,7 +56,7 @@ final class LegalpadDocumentBody extends LegalpadDAO
         $text = $this->getTitle();
         break;
       default:
-        throw new Exception('Unknown field: '.$field);
+        throw new Exception(pht('Unknown field: %s', $field));
         break;
     }
 
@@ -68,6 +76,5 @@ final class LegalpadDocumentBody extends LegalpadDAO
   public function shouldUseMarkupCache($field) {
     return (bool)$this->getID();
   }
-
 
 }

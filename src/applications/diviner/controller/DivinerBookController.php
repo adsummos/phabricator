@@ -2,49 +2,59 @@
 
 final class DivinerBookController extends DivinerController {
 
-  private $bookName;
-
   public function shouldAllowPublic() {
     return true;
   }
 
-  public function willProcessRequest(array $data) {
-    $this->bookName = $data['book'];
-  }
+  public function handleRequest(AphrontRequest $request) {
+    $viewer = $request->getViewer();
 
-  public function processRequest() {
-    $request = $this->getRequest();
-    $viewer = $request->getUser();
+    $book_name = $request->getURIData('book');
 
     $book = id(new DivinerBookQuery())
       ->setViewer($viewer)
-      ->withNames(array($this->bookName))
+      ->withNames(array($book_name))
       ->executeOne();
 
     if (!$book) {
       return new Aphront404Response();
     }
 
-    $crumbs = $this->buildApplicationCrumbs();
+    $actions = $this->buildActionView($viewer, $book);
 
+    $crumbs = $this->buildApplicationCrumbs();
+    $crumbs->setBorder(true);
     $crumbs->addTextCrumb(
       $book->getShortTitle(),
       '/book/'.$book->getName().'/');
 
+    $action_button = id(new PHUIButtonView())
+      ->setTag('a')
+      ->setText(pht('Actions'))
+      ->setHref('#')
+      ->setIconFont('fa-bars')
+      ->addClass('phui-mobile-menu')
+      ->setDropdownMenu($actions);
+
     $header = id(new PHUIHeaderView())
       ->setHeader($book->getTitle())
       ->setUser($viewer)
-      ->setPolicyObject($book);
+      ->setPolicyObject($book)
+      ->setEpoch($book->getDateModified())
+      ->addActionLink($action_button);
 
     $document = new PHUIDocumentView();
     $document->setHeader($header);
-
-    $properties = $this->buildPropertyList($book);
+    $document->addClass('diviner-view');
+    $document->setFontKit(PHUIDocumentView::FONT_SOURCE_SANS);
 
     $atoms = id(new DivinerAtomQuery())
       ->setViewer($viewer)
       ->withBookPHIDs(array($book->getPHID()))
+      ->withGhosts(false)
+      ->withIsDocumentable(true)
       ->execute();
+
     $atoms = msort($atoms, 'getSortKey');
 
     $group_spec = $book->getConfig('groups');
@@ -63,12 +73,26 @@ final class DivinerBookController extends DivinerController {
     $out = array();
     foreach ($groups as $group => $atoms) {
       $group_name = $book->getGroupName($group);
+      if (!strlen($group_name)) {
+        $group_name = pht('Free Radicals');
+      }
       $section = id(new DivinerSectionView())
-          ->setHeader($group_name);
+        ->setHeader($group_name);
       $section->addContent($this->renderAtomList($atoms));
       $out[] = $section;
     }
-    $document->appendChild($properties);
+
+    $preface = $book->getPreface();
+    $preface_view = null;
+    if (strlen($preface)) {
+      $preface_view =
+        PhabricatorMarkupEngine::renderOneObject(
+          id(new PhabricatorMarkupOneOff())->setContent($preface),
+          'default',
+          $viewer);
+    }
+
+    $document->appendChild($preface_view);
     $document->appendChild($out);
 
     return $this->buildApplicationPage(
@@ -78,24 +102,31 @@ final class DivinerBookController extends DivinerController {
       ),
       array(
         'title' => $book->getTitle(),
-        'device' => true,
       ));
   }
 
-  private function buildPropertyList(DivinerLiveBook $book) {
-    $user = $this->getRequest()->getUser();
-    $view = id(new PHUIPropertyListView())
-      ->setUser($user);
+  private function buildActionView(
+    PhabricatorUser $user,
+    DivinerLiveBook $book) {
 
-    $policies = PhabricatorPolicyQuery::renderPolicyDescriptions(
+    $can_edit = PhabricatorPolicyFilter::hasCapability(
       $user,
-      $book);
+      $book,
+      PhabricatorPolicyCapability::CAN_EDIT);
 
-    $view->addProperty(
-      pht('Updated'),
-      phabricator_datetime($book->getDateModified(), $user));
+    $action_view = id(new PhabricatorActionListView())
+      ->setUser($user)
+      ->setObject($book)
+      ->setObjectURI($this->getRequest()->getRequestURI());
 
-    return $view;
+    $action_view->addAction(
+      id(new PhabricatorActionView())
+        ->setName(pht('Edit Book'))
+        ->setIcon('fa-pencil')
+        ->setHref('/book/'.$book->getName().'/edit/')
+        ->setDisabled(!$can_edit));
+
+    return $action_view;
   }
 
 }

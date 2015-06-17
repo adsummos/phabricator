@@ -1,6 +1,10 @@
 <?php
 
-final class PhabricatorImageTransformer {
+/**
+ * @task enormous Detecting Enormous Images
+ * @task save     Saving Image Data
+ */
+final class PhabricatorImageTransformer extends Phobject {
 
   public function executeMemeTransform(
     PhabricatorFile $file,
@@ -12,48 +16,7 @@ final class PhabricatorImageTransformer {
       array(
         'name' => 'meme-'.$file->getName(),
         'ttl' => time() + 60 * 60 * 24,
-      ));
-  }
-
-  public function executeThumbTransform(
-    PhabricatorFile $file,
-    $x,
-    $y) {
-
-    $image = $this->crudelyScaleTo($file, $x, $y);
-
-    return PhabricatorFile::newFromFileData(
-      $image,
-      array(
-        'name' => 'thumb-'.$file->getName(),
-      ));
-  }
-
-  public function executeProfileTransform(
-    PhabricatorFile $file,
-    $x,
-    $min_y,
-    $max_y) {
-
-    $image = $this->crudelyCropTo($file, $x, $min_y, $max_y);
-
-    return PhabricatorFile::newFromFileData(
-      $image,
-      array(
-        'name' => 'profile-'.$file->getName(),
-      ));
-  }
-
-  public function executePreviewTransform(
-    PhabricatorFile $file,
-    $size) {
-
-    $image = $this->generatePreview($file, $size);
-
-    return PhabricatorFile::newFromFileData(
-      $image,
-      array(
-        'name' => 'preview-'.$file->getName(),
+        'canCDN' => true,
       ));
   }
 
@@ -75,35 +38,9 @@ final class PhabricatorImageTransformer {
       $image,
       array(
         'name' => 'conpherence-'.$file->getName(),
+        'profile' => true,
+        'canCDN' => true,
       ));
-  }
-
-  private function crudelyCropTo(PhabricatorFile $file, $x, $min_y, $max_y) {
-    $data = $file->loadFileData();
-    $img = imagecreatefromstring($data);
-    $sx = imagesx($img);
-    $sy = imagesy($img);
-
-    $scaled_y = ($x / $sx) * $sy;
-    if ($scaled_y > $max_y) {
-      // This image is very tall and thin.
-      $scaled_y = $max_y;
-    } else if ($scaled_y < $min_y) {
-      // This image is very short and wide.
-      $scaled_y = $min_y;
-    }
-
-    $cropped = $this->applyScaleWithImagemagick($file, $x, $scaled_y);
-    if ($cropped != null) {
-      return $cropped;
-    }
-
-    $img = $this->applyScaleTo(
-      $file,
-      $x,
-      $scaled_y);
-
-    return self::saveImageDataInAnyFormat($img, $file->getMimeType());
   }
 
   private function crasslyCropTo(PhabricatorFile $file, $top, $left, $w, $h) {
@@ -128,86 +65,12 @@ final class PhabricatorImageTransformer {
     return self::saveImageDataInAnyFormat($dst, $file->getMimeType());
   }
 
-
-  /**
-   * Very crudely scale an image up or down to an exact size.
-   */
-  private function crudelyScaleTo(PhabricatorFile $file, $dx, $dy) {
-    $scaled = $this->applyScaleWithImagemagick($file, $dx, $dy);
-
-    if ($scaled != null) {
-      return $scaled;
-    }
-
-    $dst = $this->applyScaleTo($file, $dx, $dy);
-    return self::saveImageDataInAnyFormat($dst, $file->getMimeType());
-  }
-
   private function getBlankDestinationFile($dx, $dy) {
     $dst = imagecreatetruecolor($dx, $dy);
     imagesavealpha($dst, true);
     imagefill($dst, 0, 0, imagecolorallocatealpha($dst, 255, 255, 255, 127));
 
     return $dst;
-  }
-
-  private function applyScaleTo(PhabricatorFile $file, $dx, $dy) {
-    $data = $file->loadFileData();
-    $src = imagecreatefromstring($data);
-
-    $x = imagesx($src);
-    $y = imagesy($src);
-
-    $scale = min(($dx / $x), ($dy / $y), 1);
-
-    $sdx = $scale * $x;
-    $sdy = $scale * $y;
-
-    $dst = $this->getBlankDestinationFile($dx, $dy);
-    imagesavealpha($dst, true);
-    imagefill($dst, 0, 0, imagecolorallocatealpha($dst, 255, 255, 255, 127));
-
-    imagecopyresampled(
-      $dst,
-      $src,
-      ($dx - $sdx) / 2,  ($dy - $sdy) / 2,
-      0, 0,
-      $sdx, $sdy,
-      $x, $y);
-
-    return $dst;
-
-  }
-
-  public static function getPreviewDimensions(PhabricatorFile $file, $size) {
-    $metadata = $file->getMetadata();
-    $x = idx($metadata, PhabricatorFile::METADATA_IMAGE_WIDTH);
-    $y = idx($metadata, PhabricatorFile::METADATA_IMAGE_HEIGHT);
-
-    if (!$x || !$y) {
-      $data = $file->loadFileData();
-      $src = imagecreatefromstring($data);
-
-      $x = imagesx($src);
-      $y = imagesy($src);
-    }
-
-    $scale = min($size / $x, $size / $y, 1);
-
-    $dx = max($size / 4, $scale * $x);
-    $dy = max($size / 4, $scale * $y);
-
-    $sdx = $scale * $x;
-    $sdy = $scale * $y;
-
-    return array(
-      'x' => $x,
-      'y' => $y,
-      'dx' => $dx,
-      'dy' => $dy,
-      'sdx' => $sdx,
-      'sdy' => $sdy
-    );
   }
 
   public static function getScaleForCrop(
@@ -230,30 +93,6 @@ final class PhabricatorImageTransformer {
     }
 
     return $scale;
-  }
-  private function generatePreview(PhabricatorFile $file, $size) {
-    $data = $file->loadFileData();
-    $src = imagecreatefromstring($data);
-
-    $dimensions = self::getPreviewDimensions($file, $size);
-    $x = $dimensions['x'];
-    $y = $dimensions['y'];
-    $dx = $dimensions['dx'];
-    $dy = $dimensions['dy'];
-    $sdx = $dimensions['sdx'];
-    $sdy = $dimensions['sdy'];
-
-    $dst = $this->getBlankDestinationFile($dx, $dy);
-
-    imagecopyresampled(
-      $dst,
-      $src,
-      ($dx - $sdx) / 2, ($dy - $sdy) / 2,
-      0, 0,
-      $sdx, $sdy,
-      $x, $y);
-
-    return self::saveImageDataInAnyFormat($dst, $file->getMimeType());
   }
 
   private function applyMemeToFile(
@@ -383,88 +222,13 @@ final class PhabricatorImageTransformer {
     $text_height = abs($bbox[3] - $bbox[5]);
     $text_width = abs($bbox[0] - $bbox[2]);
     return array(
-      "doesfit" => ($text_height * 1.05 <= imagesy($img) / 2
+      'doesfit' => ($text_height * 1.05 <= imagesy($img) / 2
         && $text_width * 1.05 <= imagesx($img)),
-      "txtwidth" => $text_width,
-      "txtheight" => $text_height,
-      "imgwidth" => imagesx($img),
-      "imgheight" => imagesy($img),
+      'txtwidth' => $text_width,
+      'txtheight' => $text_height,
+      'imgwidth' => imagesx($img),
+      'imgheight' => imagesy($img),
     );
-  }
-
-  public static function saveImageDataInAnyFormat($data, $preferred_mime = '') {
-    switch ($preferred_mime) {
-      case 'image/gif': // Gif doesn't support true color
-        ob_start();
-        imagegif($data);
-        return ob_get_clean();
-        break;
-      case 'image/png':
-        if (function_exists('imagepng')) {
-          ob_start();
-          imagepng($data, null, 9);
-          return ob_get_clean();
-        }
-        break;
-    }
-
-    $img = null;
-
-    if (function_exists('imagejpeg')) {
-      ob_start();
-      imagejpeg($data);
-      $img = ob_get_clean();
-    } else if (function_exists('imagepng')) {
-      ob_start();
-      imagepng($data, null, 9);
-      $img = ob_get_clean();
-    } else if (function_exists('imagegif')) {
-      ob_start();
-      imagegif($data);
-      $img = ob_get_clean();
-    } else {
-      throw new Exception("No image generation functions exist!");
-    }
-
-    return $img;
-  }
-
-  private function applyScaleWithImagemagick(PhabricatorFile $file, $dx, $dy) {
-
-    $img_type = $file->getMimeType();
-    $imagemagick = PhabricatorEnv::getEnvConfig('files.enable-imagemagick');
-
-    if ($img_type != 'image/gif' || $imagemagick == false) {
-      return null;
-    }
-
-    $data = $file->loadFileData();
-    $src = imagecreatefromstring($data);
-
-    $x = imagesx($src);
-    $y = imagesy($src);
-
-    $scale = min(($dx / $x), ($dy / $y), 1);
-
-    $sdx = $scale * $x;
-    $sdy = $scale * $y;
-
-    $input = new TempFile();
-    Filesystem::writeFile($input, $data);
-
-    $resized = new TempFile();
-
-    list($err) = exec_manual(
-                 'convert %s -coalesce -resize %sX%s\! %s'
-                  , $input, $sdx, $sdy, $resized);
-
-    if (!$err) {
-      $new_data = Filesystem::readFile($resized);
-      return $new_data;
-    } else {
-      return null;
-    }
-
   }
 
   private function applyMemeWithImagemagick(
@@ -475,14 +239,19 @@ final class PhabricatorImageTransformer {
     $img_type) {
 
     $output = new TempFile();
-
-    execx('convert %s -coalesce +adjoin %s_%%09d',
+    $future = new ExecFuture(
+      'convert %s -coalesce +adjoin %s_%s',
       $input,
-      $input);
+      $input,
+      '%09d');
+    $future->setTimeout(10)->resolvex();
 
+    $output_files = array();
     for ($ii = 0; $ii < $count; $ii++) {
       $frame_name = sprintf('%s_%09d', $input, $ii);
       $output_name = sprintf('%s_%09d', $output, $ii);
+
+      $output_files[] = $output_name;
 
       $frame_data = Filesystem::readFile($frame_name);
       $memed_frame_data = $this->applyMemeTo(
@@ -493,9 +262,135 @@ final class PhabricatorImageTransformer {
       Filesystem::writeFile($output_name, $memed_frame_data);
     }
 
-    execx('convert -loop 0 %s_* %s', $output, $output);
+    $future = new ExecFuture('convert -loop 0 %Ls %s', $output_files, $output);
+    $future->setTimeout(10)->resolvex();
 
     return Filesystem::readFile($output);
   }
+
+
+/* -(  Saving Image Data  )-------------------------------------------------- */
+
+
+  /**
+   * Save an image resource to a string representation suitable for storage or
+   * transmission as an image file.
+   *
+   * Optionally, you can specify a preferred MIME type like `"image/png"`.
+   * Generally, you should specify the MIME type of the original file if you're
+   * applying file transformations. The MIME type may not be honored if
+   * Phabricator can not encode images in the given format (based on available
+   * extensions), but can save images in another format.
+   *
+   * @param   resource  GD image resource.
+   * @param   string?   Optionally, preferred mime type.
+   * @return  string    Bytes of an image file.
+   * @task save
+   */
+  public static function saveImageDataInAnyFormat($data, $preferred_mime = '') {
+    $preferred = null;
+    switch ($preferred_mime) {
+      case 'image/gif':
+        $preferred = self::saveImageDataAsGIF($data);
+        break;
+      case 'image/png':
+        $preferred = self::saveImageDataAsPNG($data);
+        break;
+    }
+
+    if ($preferred !== null) {
+      return $preferred;
+    }
+
+    $data = self::saveImageDataAsJPG($data);
+    if ($data !== null) {
+      return $data;
+    }
+
+    $data = self::saveImageDataAsPNG($data);
+    if ($data !== null) {
+      return $data;
+    }
+
+    $data = self::saveImageDataAsGIF($data);
+    if ($data !== null) {
+      return $data;
+    }
+
+    throw new Exception(pht('Failed to save image data into any format.'));
+  }
+
+
+  /**
+   * Save an image in PNG format, returning the file data as a string.
+   *
+   * @param resource      GD image resource.
+   * @return string|null  PNG file as a string, or null on failure.
+   * @task save
+   */
+  private static function saveImageDataAsPNG($image) {
+    if (!function_exists('imagepng')) {
+      return null;
+    }
+
+    ob_start();
+    $result = imagepng($image, null, 9);
+    $output = ob_get_clean();
+
+    if (!$result) {
+      return null;
+    }
+
+    return $output;
+  }
+
+
+  /**
+   * Save an image in GIF format, returning the file data as a string.
+   *
+   * @param resource      GD image resource.
+   * @return string|null  GIF file as a string, or null on failure.
+   * @task save
+   */
+  private static function saveImageDataAsGIF($image) {
+    if (!function_exists('imagegif')) {
+      return null;
+    }
+
+    ob_start();
+    $result = imagegif($image);
+    $output = ob_get_clean();
+
+    if (!$result) {
+      return null;
+    }
+
+    return $output;
+  }
+
+
+  /**
+   * Save an image in JPG format, returning the file data as a string.
+   *
+   * @param resource      GD image resource.
+   * @return string|null  JPG file as a string, or null on failure.
+   * @task save
+   */
+  private static function saveImageDataAsJPG($image) {
+    if (!function_exists('imagejpeg')) {
+      return null;
+    }
+
+    ob_start();
+    $result = imagejpeg($image);
+    $output = ob_get_clean();
+
+    if (!$result) {
+      return null;
+    }
+
+    return $output;
+  }
+
 
 }

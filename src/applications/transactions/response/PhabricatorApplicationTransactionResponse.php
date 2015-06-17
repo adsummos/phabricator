@@ -5,21 +5,20 @@ final class PhabricatorApplicationTransactionResponse
 
   private $viewer;
   private $transactions;
-  private $anchorOffset;
   private $isPreview;
-  private $isDetailView;
+  private $transactionView;
 
-  protected function buildProxy() {
-    return new AphrontAjaxResponse();
-  }
-
-  public function setAnchorOffset($anchor_offset) {
-    $this->anchorOffset = $anchor_offset;
+  public function setTransactionView($transaction_view) {
+    $this->transactionView = $transaction_view;
     return $this;
   }
 
-  public function getAnchorOffset() {
-    return $this->anchorOffset;
+  public function getTransactionView() {
+    return $this->transactionView;
+  }
+
+  protected function buildProxy() {
+    return new AphrontAjaxResponse();
   }
 
   public function setTransactions($transactions) {
@@ -47,13 +46,10 @@ final class PhabricatorApplicationTransactionResponse
     return $this;
   }
 
-  public function setIsDetailView($is_detail_view) {
-    $this->isDetailView = $is_detail_view;
-    return $this;
-  }
-
   public function reduceProxyResponse() {
-    if ($this->getTransactions()) {
+    if ($this->transactionView) {
+      $view = $this->transactionView;
+    } else if ($this->getTransactions()) {
       $view = head($this->getTransactions())
         ->getApplicationTransactionViewObject();
     } else {
@@ -63,17 +59,18 @@ final class PhabricatorApplicationTransactionResponse
     $view
       ->setUser($this->getViewer())
       ->setTransactions($this->getTransactions())
-      ->setIsPreview($this->isPreview)
-      ->setIsDetailView($this->isDetailView);
-
-    if ($this->getAnchorOffset()) {
-      $view->setAnchorOffset($this->getAnchorOffset());
-    }
+      ->setIsPreview($this->isPreview);
 
     if ($this->isPreview) {
       $xactions = mpull($view->buildEvents(), 'render');
     } else {
       $xactions = mpull($view->buildEvents(), 'render', 'getTransactionPHID');
+    }
+
+    // Force whatever the underlying views built to render into HTML for
+    // the Javascript.
+    foreach ($xactions as $key => $xaction) {
+      $xactions[$key] = hsprintf('%s', $xaction);
     }
 
     $content = array(

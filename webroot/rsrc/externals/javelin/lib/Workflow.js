@@ -7,13 +7,11 @@
  *           javelin-util
  *           javelin-mask
  *           javelin-uri
+ *           javelin-routable
  * @provides javelin-workflow
  * @javelin
  */
 
-/**
- * @group workflow
- */
 JX.install('Workflow', {
   construct : function(uri, data) {
     if (__DEV__) {
@@ -31,22 +29,27 @@ JX.install('Workflow', {
 
   statics : {
     _stack   : [],
-    newFromForm : function(form, data) {
+    newFromForm : function(form, data, keep_enabled) {
       var pairs = JX.DOM.convertFormToListOfPairs(form);
       for (var k in data) {
         pairs.push([k, data[k]]);
       }
 
-      // Disable form elements during the request
-      var inputs = [].concat(
-        JX.DOM.scry(form, 'input'),
-        JX.DOM.scry(form, 'button'),
-        JX.DOM.scry(form, 'textarea'));
-      for (var ii = 0; ii < inputs.length; ii++) {
-        if (inputs[ii].disabled) {
-          delete inputs[ii];
-        } else {
-          inputs[ii].disabled = true;
+      var inputs;
+      if (keep_enabled) {
+        inputs = [];
+      } else {
+        // Disable form elements during the request
+        inputs = [].concat(
+          JX.DOM.scry(form, 'input'),
+          JX.DOM.scry(form, 'button'),
+          JX.DOM.scry(form, 'textarea'));
+        for (var ii = 0; ii < inputs.length; ii++) {
+          if (inputs[ii].disabled) {
+            delete inputs[ii];
+          } else {
+            inputs[ii].disabled = true;
+          }
         }
       }
 
@@ -59,6 +62,7 @@ JX.install('Workflow', {
           inputs[ii] && (inputs[ii].disabled = false);
         }
       });
+
       return workflow;
     },
     newFromLink : function(link) {
@@ -88,38 +92,58 @@ JX.install('Workflow', {
         return;
       }
 
-      event.prevent();
-
       // Get the button (which is sometimes actually another tag, like an <a />)
       // which triggered the event. In particular, this makes sure we get the
       // right node if there is a <button> with an <img /> inside it or
       // or something similar.
       var t = event.getNode('jx-workflow-button') ||
               event.getNode('tag:button');
+
+      // If this button disables workflow (normally, because it is a file
+      // download button) let the event through without modification.
+      if (JX.Stratcom.getData(t).disableWorkflow) {
+        return;
+      }
+
+      event.prevent();
+
       if (t.name == '__cancel__' || t.name == '__close__') {
         JX.Workflow._pop();
       } else {
         var form = event.getNode('jx-dialog');
+        JX.Workflow._dosubmit(form, t);
+      }
+    },
+    _onsyntheticsubmit : function(e) {
+      if (JX.Stratcom.pass()) {
+        return;
+      }
+      if (JX.Workflow._disabled) {
+        return;
+      }
+      e.prevent();
+      var form = e.getNode('jx-dialog');
+      var button = JX.DOM.find(form, 'button', '__default__');
+      JX.Workflow._dosubmit(form, button);
+    },
+    _dosubmit : function(form, button) {
+      // Issue a DOM event first, so form-oriented handlers can act.
+      var dom_event = JX.DOM.invoke(form, 'didWorkflowSubmit');
+      if (dom_event.getPrevented()) {
+        return;
+      }
 
-        // Issue a DOM event first, so form-oriented handlers can act.
-        var dom_event = JX.DOM.invoke(form, 'didWorkflowSubmit');
-        if (dom_event.getPrevented()) {
-          return;
-        }
+      var data = JX.DOM.convertFormToListOfPairs(form);
+      data.push([button.name, button.value || true]);
 
-        var data = JX.DOM.convertFormToListOfPairs(form);
-
-        data.push([t.name, t.value || true]);
-
-        var active = JX.Workflow._getActiveWorkflow();
-        var e = active.invoke('submit', {form: form, data: data});
-        if (!e.getStopped()) {
-          active._destroy();
-          active
-            .setURI(form.getAttribute('action') || active.getURI())
-            .setDataWithListOfPairs(data)
-            .start();
-        }
+      var active = JX.Workflow._getActiveWorkflow();
+      var e = active.invoke('submit', {form: form, data: data});
+      if (!e.getStopped()) {
+        active._destroy();
+        active
+          .setURI(form.getAttribute('action') || active.getURI())
+          .setDataWithListOfPairs(data)
+          .start();
       }
     },
     _getActiveWorkflow : function() {
@@ -148,7 +172,18 @@ JX.install('Workflow', {
           'click',
           [['jx-workflow-button'], ['tag:button']],
           JX.Workflow._onbutton);
+        JX.DOM.listen(
+          this._root,
+          'didSyntheticSubmit',
+          [],
+          JX.Workflow._onsyntheticsubmit);
+
+        // Note that even in the presence of a content frame, we're doing
+        // everything here at top level: dialogs are fully modal and cover
+        // the entire window.
+
         document.body.appendChild(this._root);
+
         var d = JX.Vector.getDim(this._root);
         var v = JX.Vector.getViewport();
         var s = JX.Vector.getScroll();
@@ -181,6 +216,8 @@ JX.install('Workflow', {
         // The `focus()` call may have scrolled the window. Scroll it back to
         // where it was before -- we want to focus the control, but not adjust
         // the scroll position.
+
+        // Dialogs are window-level, so scroll the window explicitly.
         window.scrollTo(s.x, s.y);
 
       } else if (this.getHandler()) {
@@ -232,6 +269,18 @@ JX.install('Workflow', {
         // event instead.
       }));
       r.send();
+    },
+
+    getRoutable: function() {
+      var routable = new JX.Routable();
+      routable.listen('start', JX.bind(this, function() {
+        // Pass the event to allow other listeners to "start" to configure this
+        // workflow before it fires.
+        JX.Stratcom.pass(JX.Stratcom.context());
+        this.start();
+      }));
+      this.listen('finally', JX.bind(routable, routable.done));
+      return routable;
     },
 
     setData : function(dictionary) {

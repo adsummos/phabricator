@@ -20,7 +20,7 @@ abstract class HeraldPreCommitAdapter extends HeraldAdapter {
   }
 
   public function getAdapterApplicationClass() {
-    return 'PhabricatorApplicationDiffusion';
+    return 'PhabricatorDiffusionApplication';
   }
 
   public function getObject() {
@@ -31,8 +31,8 @@ abstract class HeraldPreCommitAdapter extends HeraldAdapter {
     switch ($rule_type) {
       case HeraldRuleTypeConfig::RULE_TYPE_GLOBAL:
       case HeraldRuleTypeConfig::RULE_TYPE_OBJECT:
-        return true;
       case HeraldRuleTypeConfig::RULE_TYPE_PERSONAL:
+        return true;
       default:
         return false;
     }
@@ -51,8 +51,7 @@ abstract class HeraldPreCommitAdapter extends HeraldAdapter {
   }
 
   public function explainValidTriggerObjects() {
-    return pht(
-      'This rule can trigger for **repositories** or **projects**.');
+    return pht('This rule can trigger for **repositories** or **projects**.');
   }
 
   public function getTriggerObjectPHIDs() {
@@ -68,14 +67,20 @@ abstract class HeraldPreCommitAdapter extends HeraldAdapter {
     switch ($rule_type) {
       case HeraldRuleTypeConfig::RULE_TYPE_GLOBAL:
       case HeraldRuleTypeConfig::RULE_TYPE_OBJECT:
-        return array(
-          self::ACTION_BLOCK,
-          self::ACTION_NOTHING
-        );
+        return array_merge(
+          array(
+            self::ACTION_BLOCK,
+            self::ACTION_EMAIL,
+            self::ACTION_NOTHING,
+          ),
+          parent::getActions($rule_type));
       case HeraldRuleTypeConfig::RULE_TYPE_PERSONAL:
-        return array(
-          self::ACTION_NOTHING,
-        );
+        return array_merge(
+          array(
+            self::ACTION_EMAIL,
+            self::ACTION_NOTHING,
+          ),
+          parent::getActions($rule_type));
     }
   }
 
@@ -90,12 +95,6 @@ abstract class HeraldPreCommitAdapter extends HeraldAdapter {
     foreach ($effects as $effect) {
       $action = $effect->getAction();
       switch ($action) {
-        case self::ACTION_NOTHING:
-          $result[] = new HeraldApplyTranscript(
-            $effect,
-            true,
-            pht('Did nothing.'));
-          break;
         case self::ACTION_BLOCK:
           $result[] = new HeraldApplyTranscript(
             $effect,
@@ -103,7 +102,8 @@ abstract class HeraldPreCommitAdapter extends HeraldAdapter {
             pht('Blocked push.'));
           break;
         default:
-          throw new Exception(pht('No rules to handle action "%s"!', $action));
+          $result[] = $this->applyStandardEffect($effect);
+          break;
       }
     }
 

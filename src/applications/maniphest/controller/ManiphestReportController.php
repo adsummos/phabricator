@@ -1,8 +1,5 @@
 <?php
 
-/**
- * @group maniphest
- */
 final class ManiphestReportController extends ManiphestController {
 
   private $view;
@@ -55,12 +52,14 @@ final class ManiphestReportController extends ManiphestController {
     $nav->appendChild($core);
     $nav->setCrumbs(
       $this->buildApplicationCrumbs()
+        ->setBorder(true)
         ->addTextCrumb(pht('Reports')));
 
     return $this->buildApplicationPage(
       $nav,
       array(
         'title' => pht('Maniphest Reports'),
+        'device' => false,
       ));
   }
 
@@ -85,9 +84,10 @@ final class ManiphestReportController extends ManiphestController {
       $joins = qsprintf(
         $conn,
         'JOIN %T t ON x.objectPHID = t.phid
-          JOIN %T p ON p.taskPHID = t.phid AND p.projectPHID = %s',
+          JOIN %T p ON p.src = t.phid AND p.type = %d AND p.dst = %s',
         id(new ManiphestTask())->getTableName(),
-        id(new ManiphestTaskProject())->getTableName(),
+        PhabricatorEdgeConfig::TABLE_NAME_EDGE,
+        PhabricatorProjectObjectHasProjectEdgeType::EDGECONST,
         $project_phid);
     }
 
@@ -111,8 +111,13 @@ final class ManiphestReportController extends ManiphestController {
       $oldv = trim($row['oldValue'], '"');
       $newv = trim($row['newValue'], '"');
 
-      $old_is_open = ($oldv === (string)ManiphestTaskStatus::STATUS_OPEN);
-      $new_is_open = ($newv === (string)ManiphestTaskStatus::STATUS_OPEN);
+      if ($oldv == 'null') {
+        $old_is_open = false;
+      } else {
+        $old_is_open = ManiphestTaskStatus::isOpenStatus($oldv);
+      }
+
+      $new_is_open = ManiphestTaskStatus::isOpenStatus($newv);
 
       $is_open  = ($new_is_open && !$old_is_open);
       $is_close = ($old_is_open && !$new_is_open);
@@ -167,7 +172,7 @@ final class ManiphestReportController extends ManiphestController {
       if ($week_bucket != $last_week) {
         if ($week) {
           $rows[] = $this->formatBurnRow(
-            'Week of '.phabricator_date($last_week_epoch, $user),
+            pht('Week of %s', phabricator_date($last_week_epoch, $user)),
             $week);
           $rowc[] = 'week';
         }
@@ -243,22 +248,30 @@ final class ManiphestReportController extends ManiphestController {
 
     if ($handle) {
       $inst = pht(
-        "NOTE: This table reflects tasks currently in ".
-        "the project. If a task was opened in the past but added to ".
-        "the project recently, it is counted on the day it was ".
-        "opened, not the day it was categorized. If a task was part ".
-        "of this project in the past but no longer is, it is not ".
-        "counted at all.");
-      $header = pht("Task Burn Rate for Project %s", $handle->renderLink());
+        'NOTE: This table reflects tasks currently in '.
+        'the project. If a task was opened in the past but added to '.
+        'the project recently, it is counted on the day it was '.
+        'opened, not the day it was categorized. If a task was part '.
+        'of this project in the past but no longer is, it is not '.
+        'counted at all.');
+      $header = pht('Task Burn Rate for Project %s', $handle->renderLink());
       $caption = phutil_tag('p', array(), $inst);
     } else {
-      $header = pht("Task Burn Rate for All Tasks");
+      $header = pht('Task Burn Rate for All Tasks');
       $caption = null;
     }
 
-    $panel = new AphrontPanelView();
-    $panel->setHeader($header);
-    $panel->setCaption($caption);
+    if ($caption) {
+      $caption = id(new PHUIInfoView())
+        ->appendChild($caption)
+        ->setSeverity(PHUIInfoView::SEVERITY_NOTICE);
+    }
+
+    $panel = new PHUIObjectBoxView();
+    $panel->setHeaderText($header);
+    if ($caption) {
+      $panel->setInfoView($caption);
+    }
     $panel->appendChild($table);
 
     $tokens = array();
@@ -273,8 +286,9 @@ final class ManiphestReportController extends ManiphestController {
       'div',
       array(
         'id' => $id,
-        'style' => 'border: 1px solid #6f6f6f; '.
-                   'margin: 1em 2em; '.
+        'style' => 'border: 1px solid #BFCFDA; '.
+                   'background-color: #fff; '.
+                   'margin: 8px 16px; '.
                    'height: 400px; ',
       ),
       '');
@@ -306,13 +320,14 @@ final class ManiphestReportController extends ManiphestController {
 
     $form = id(new AphrontFormView())
       ->setUser($user)
-      ->appendChild(
+      ->appendControl(
         id(new AphrontFormTokenizerControl())
-          ->setDatasource('/typeahead/common/searchproject/')
+          ->setDatasource(new PhabricatorProjectDatasource())
           ->setLabel(pht('Project'))
           ->setLimit(1)
           ->setName('set_project')
-          ->setValue($tokens));
+          // TODO: This is silly, but this is Maniphest reports.
+          ->setValue(mpull($tokens, 'getPHID')));
 
     if ($has_window) {
       list($window_str, $ignored, $window_error) = $this->getWindow();
@@ -370,7 +385,8 @@ final class ManiphestReportController extends ManiphestController {
       $label,
       number_format($info['open']),
       number_format($info['close']),
-      $fmt);
+      $fmt,
+    );
   }
 
   public function renderOpenTasks() {
@@ -380,7 +396,13 @@ final class ManiphestReportController extends ManiphestController {
 
     $query = id(new ManiphestTaskQuery())
       ->setViewer($user)
-      ->withStatus(ManiphestTaskQuery::STATUS_OPEN);
+      ->withStatuses(ManiphestTaskStatus::getOpenStatusConstants());
+
+    switch ($this->view) {
+      case 'project':
+        $query->needProjectPHIDs(true);
+        break;
+    }
 
     $project_phid = $request->getStr('project');
     $project_handle = null;
@@ -389,7 +411,10 @@ final class ManiphestReportController extends ManiphestController {
       $handles = $this->loadViewerHandles($phids);
       $project_handle = $handles[$project_phid];
 
-      $query->withAnyProjects($phids);
+      $query->withEdgeLogicPHIDs(
+        PhabricatorProjectObjectHasProjectEdgeType::EDGECONST,
+        PhabricatorQueryConstraint::OPERATOR_OR,
+        $phids);
     }
 
     $tasks = $query->execute();
@@ -440,7 +465,7 @@ final class ManiphestReportController extends ManiphestController {
           }
         }
 
-        $base_link = '/maniphest/?allProjects[]=';
+        $base_link = '/maniphest/?projects=';
         $leftover_name = phutil_tag('em', array(), pht('(No Project)'));
         $col_header = pht('Project');
         $header = pht('Open Tasks by Project and Priority (%s)', $date);
@@ -564,7 +589,7 @@ final class ManiphestReportController extends ManiphestController {
       $cname[] = $label;
       $cclass[] = 'n';
     }
-    $cname[] = 'Total';
+    $cname[] = pht('Total');
     $cclass[] = 'n';
     $cname[] = javelin_tag(
       'span',
@@ -582,8 +607,8 @@ final class ManiphestReportController extends ManiphestController {
       array(
         'sigil' => 'has-tooltip',
         'meta'  => array(
-          'tip' => pht('Oldest open task, excluding those with Low or '.
-                   'Wishlist priority.'),
+          'tip' => pht(
+            'Oldest open task, excluding those with Low or Wishlist priority.'),
           'size' => 200,
         ),
       ),
@@ -598,7 +623,7 @@ final class ManiphestReportController extends ManiphestController {
         'sigil' => 'has-tooltip',
         'meta'  => array(
           'tip'  => pht('Closed after %s', $edate),
-          'size' => 260
+          'size' => 260,
         ),
       ),
       pht('Recently Closed'));
@@ -626,8 +651,8 @@ final class ManiphestReportController extends ManiphestController {
         'closed',
       ));
 
-    $panel = new AphrontPanelView();
-    $panel->setHeader($header);
+    $panel = new PHUIObjectBoxView();
+    $panel->setHeaderText($header);
     $panel->appendChild($table);
 
     $tokens = array();
@@ -650,28 +675,47 @@ final class ManiphestReportController extends ManiphestController {
     $xtable = new ManiphestTransaction();
     $conn_r = $table->establishConnection('r');
 
-    $tasks = queryfx_all(
+    // TODO: Gross. This table is not meant to be queried like this. Build
+    // real stats tables.
+
+    $open_status_list = array();
+    foreach (ManiphestTaskStatus::getOpenStatusConstants() as $constant) {
+      $open_status_list[] = json_encode((string)$constant);
+    }
+
+    $rows = queryfx_all(
       $conn_r,
-      'SELECT t.* FROM %T t JOIN %T x ON x.objectPHID = t.phid
-        WHERE t.status != 0
-        AND x.oldValue IN (null, %s, %s)
-        AND x.newValue NOT IN (%s, %s)
+      'SELECT t.id FROM %T t JOIN %T x ON x.objectPHID = t.phid
+        WHERE t.status NOT IN (%Ls)
+        AND x.oldValue IN (null, %Ls)
+        AND x.newValue NOT IN (%Ls)
         AND t.dateModified >= %d
         AND x.dateCreated >= %d',
       $table->getTableName(),
       $xtable->getTableName(),
-
-      // TODO: Gross. This table is not meant to be queried like this. Build
-      // real stats tables.
-      json_encode((int)ManiphestTaskStatus::STATUS_OPEN),
-      json_encode((string)ManiphestTaskStatus::STATUS_OPEN),
-      json_encode((int)ManiphestTaskStatus::STATUS_OPEN),
-      json_encode((string)ManiphestTaskStatus::STATUS_OPEN),
-
+      ManiphestTaskStatus::getOpenStatusConstants(),
+      $open_status_list,
+      $open_status_list,
       $window_epoch,
       $window_epoch);
 
-    return id(new ManiphestTask())->loadAllFromArray($tasks);
+    if (!$rows) {
+      return array();
+    }
+
+    $ids = ipull($rows, 'id');
+
+    $query = id(new ManiphestTaskQuery())
+      ->setViewer($this->getRequest()->getUser())
+      ->withIDs($ids);
+
+    switch ($this->view) {
+      case 'project':
+        $query->needProjectPHIDs(true);
+        break;
+    }
+
+    return $query->execute();
   }
 
   /**

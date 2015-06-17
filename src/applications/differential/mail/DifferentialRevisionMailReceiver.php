@@ -4,8 +4,8 @@ final class DifferentialRevisionMailReceiver
   extends PhabricatorObjectMailReceiver {
 
   public function isEnabled() {
-    $app_class = 'PhabricatorApplicationDifferential';
-    return PhabricatorApplication::isClassInstalled($app_class);
+    return PhabricatorApplication::isClassInstalled(
+      'PhabricatorDifferentialApplication');
   }
 
   protected function getObjectPattern() {
@@ -15,25 +15,17 @@ final class DifferentialRevisionMailReceiver
   protected function loadObject($pattern, PhabricatorUser $viewer) {
     $id = (int)trim($pattern, 'D');
 
-    $results = id(new DifferentialRevisionQuery())
+    return id(new DifferentialRevisionQuery())
       ->setViewer($viewer)
       ->withIDs(array($id))
-      ->execute();
-
-    return head($results);
+      ->needReviewerStatus(true)
+      ->needReviewerAuthority(true)
+      ->needActiveDiffs(true)
+      ->executeOne();
   }
 
-  protected function processReceivedObjectMail(
-    PhabricatorMetaMTAReceivedMail $mail,
-    PhabricatorLiskDAO $object,
-    PhabricatorUser $sender) {
-
-    $handler = DifferentialMail::newReplyHandlerForRevision($object);
-
-    $handler->setActor($sender);
-    $handler->setExcludeMailRecipientPHIDs(
-      $mail->loadExcludeMailRecipientPHIDs());
-    $handler->processEmail($mail);
+  protected function getTransactionReplyHandler() {
+    return new DifferentialReplyHandler();
   }
 
 }

@@ -3,11 +3,13 @@
 final class PHUITagExample extends PhabricatorUIExample {
 
   public function getName() {
-    return 'Tags';
+    return pht('Tags');
   }
 
   public function getDescription() {
-    return hsprintf('Use <tt>PHUITagView</tt> to render various tags.');
+    return pht(
+      'Use %s to render various tags.',
+      phutil_tag('tt', array(), 'PHUITagView'));
   }
 
   public function renderExample() {
@@ -103,19 +105,19 @@ final class PHUITagExample extends PhabricatorUIExample {
       ->setType(PHUITagView::TYPE_STATE)
       ->setBackgroundColor(PHUITagView::COLOR_GREEN)
       ->setDotColor(PHUITagView::COLOR_RED)
-      ->setName('Christmas');
+      ->setName(pht('Christmas'));
     $tags[] = hsprintf('<br /><br />');
     $tags[] = id(new PHUITagView())
       ->setType(PHUITagView::TYPE_OBJECT)
       ->setBackgroundColor(PHUITagView::COLOR_ORANGE)
       ->setDotColor(PHUITagView::COLOR_BLACK)
-      ->setName('Halloween');
+      ->setName(pht('Halloween'));
     $tags[] = hsprintf('<br /><br />');
     $tags[] = id(new PHUITagView())
       ->setType(PHUITagView::TYPE_STATE)
       ->setBackgroundColor(PHUITagView::COLOR_INDIGO)
       ->setDotColor(PHUITagView::COLOR_YELLOW)
-      ->setName('Easter');
+      ->setName(pht('Easter'));
 
     $content2 = id(new PHUIBoxView())
       ->appendChild($tags)
@@ -125,53 +127,81 @@ final class PHUITagExample extends PhabricatorUIExample {
     $icons[] = id(new PHUITagView())
       ->setType(PHUITagView::TYPE_STATE)
       ->setBackgroundColor(PHUITagView::COLOR_GREEN)
-      ->setIcon('ok-white')
-      ->setName('Passed');
+      ->setIcon('fa-check white')
+      ->setName(pht('Passed'));
     $icons[] = hsprintf('<br /><br />');
     $icons[] = id(new PHUITagView())
       ->setType(PHUITagView::TYPE_STATE)
       ->setBackgroundColor(PHUITagView::COLOR_RED)
-      ->setIcon('delete-white')
-      ->setName('Failed');
+      ->setIcon('fa-times white')
+      ->setName(pht('Failed'));
     $icons[] = hsprintf('<br /><br />');
     $icons[] = id(new PHUITagView())
       ->setType(PHUITagView::TYPE_STATE)
       ->setBackgroundColor(PHUITagView::COLOR_BLUE)
-      ->setIcon('play-white')
-      ->setName('Running');
+      ->setIcon('fa-refresh white')
+      ->setName(pht('Running'));
     $icons[] = hsprintf('<br /><br />');
     $icons[] = id(new PHUITagView())
       ->setType(PHUITagView::TYPE_STATE)
       ->setBackgroundColor(PHUITagView::COLOR_GREY)
-      ->setIcon('pause-white')
-      ->setName('Paused');
+      ->setIcon('fa-pause white')
+      ->setName(pht('Paused'));
     $icons[] = hsprintf('<br /><br />');
     $icons[] = id(new PHUITagView())
       ->setType(PHUITagView::TYPE_STATE)
       ->setBackgroundColor(PHUITagView::COLOR_BLACK)
-      ->setIcon('stop-white')
-      ->setName('Stopped');
+      ->setIcon('fa-stop white')
+      ->setName(pht('Stopped'));
 
     $content3 = id(new PHUIBoxView())
       ->appendChild($icons)
       ->addPadding(PHUI::PADDING_LARGE);
 
+    $shades = PHUITagView::getShades();
+    $tags = array();
+    foreach ($shades as $shade) {
+      $tags[] = id(new PHUITagView())
+        ->setType(PHUITagView::TYPE_OBJECT)
+        ->setShade($shade)
+        ->setIcon('fa-tags')
+        ->setName(ucwords($shade))
+        ->setHref('#');
+      $tags[] = hsprintf('&nbsp;');
+      $tags[] = id(new PHUITagView())
+        ->setType(PHUITagView::TYPE_OBJECT)
+        ->setShade($shade)
+        ->setSlimShady(true)
+        ->setIcon('fa-tags')
+        ->setName(ucwords($shade))
+        ->setHref('#');
+      $tags[] = hsprintf('<br /><br />');
+    }
+
+    $content4 = id(new PHUIBoxView())
+      ->appendChild($tags)
+      ->addPadding(PHUI::PADDING_LARGE);
+
     $box = id(new PHUIObjectBoxView())
-      ->setHeaderText('Inline')
+      ->setHeaderText(pht('Inline'))
       ->appendChild($intro);
 
     $box1 = id(new PHUIObjectBoxView())
-      ->setHeaderText('Colors')
+      ->setHeaderText(pht('Colors'))
       ->appendChild($content1);
 
     $box2 = id(new PHUIObjectBoxView())
-      ->setHeaderText('Holidays')
+      ->setHeaderText(pht('Holidays'))
       ->appendChild($content2);
 
     $box3 = id(new PHUIObjectBoxView())
-      ->setHeaderText('Icons')
+      ->setHeaderText(pht('Icons'))
       ->appendChild($content3);
 
-    return array($box, $box1, $box2, $box3);
+    $box4 = id(new PHUIObjectBoxView())
+      ->setHeaderText(pht('Shades'))
+      ->appendChild($content4);
+
+    return array($box, $box1, $box2, $box3, $box4);
   }
 }

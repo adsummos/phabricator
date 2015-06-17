@@ -44,12 +44,12 @@ if (
   (preg_match('/charset="(.*?)"/', $content_type, $matches) ||
    preg_match('/charset=(\S+)/', $content_type, $matches))
 ) {
-  $text_body = phutil_utf8_convert($text_body, "UTF-8", $matches[1]);
+  $text_body = phutil_utf8_convert($text_body, 'UTF-8', $matches[1]);
 }
 
 $headers = $parser->getHeaders();
-$headers['subject'] = iconv_mime_decode($headers['subject'], 0, "UTF-8");
-$headers['from'] = iconv_mime_decode($headers['from'], 0, "UTF-8");
+$headers['subject'] = iconv_mime_decode($headers['subject'], 0, 'UTF-8');
+$headers['from'] = iconv_mime_decode($headers['from'], 0, 'UTF-8');
 
 if ($args->getArg('process-duplicates')) {
   $headers['message-id'] = Filesystem::readRandomCharacters(64);
@@ -77,6 +77,7 @@ foreach ($parser->getAttachments() as $attachment) {
     $attachment->getContent(),
     array(
       'name' => $attachment->getFilename(),
+      'viewPolicy' => PhabricatorPolicies::POLICY_NOONE,
     ));
   $attachments[] = $file->getPHID();
 }
@@ -87,10 +88,8 @@ try {
   $received->processReceivedMail();
 } catch (Exception $e) {
   $received
-    ->setMessage('EXCEPTION: '.$e->getMessage())
+    ->setMessage(pht('EXCEPTION: %s', $e->getMessage()))
     ->save();
 
   throw $e;
 }
-
-

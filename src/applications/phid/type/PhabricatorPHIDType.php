@@ -1,11 +1,61 @@
 <?php
 
-abstract class PhabricatorPHIDType {
+abstract class PhabricatorPHIDType extends Phobject {
 
-  abstract public function getTypeConstant();
+  final public function getTypeConstant() {
+    $class = new ReflectionClass($this);
+
+    $const = $class->getConstant('TYPECONST');
+    if ($const === false) {
+      throw new Exception(
+        pht(
+          '%s class "%s" must define a %s property.',
+          __CLASS__,
+          get_class($this),
+          'TYPECONST'));
+    }
+
+    if (!is_string($const) || !preg_match('/^[A-Z]{4}$/', $const)) {
+      throw new Exception(
+        pht(
+          '%s class "%s" has an invalid %s property. PHID '.
+          'constants must be a four character uppercase string.',
+          __CLASS__,
+          get_class($this),
+          'TYPECONST'));
+    }
+
+    return $const;
+  }
+
   abstract public function getTypeName();
 
   public function newObject() {
+    return null;
+  }
+
+  public function getTypeIcon() {
+    // Default to the application icon if the type doesn't specify one.
+    $application_class = $this->getPHIDTypeApplicationClass();
+    if ($application_class) {
+      $application = newv($application_class, array());
+      return $application->getFontIcon();
+    }
+
+    return null;
+  }
+
+
+  /**
+   * Get the class name for the application this type belongs to.
+   *
+   * @return string|null Class name of the corresponding application, or null
+   *   if the type is not bound to an application.
+   */
+  public function getPHIDTypeApplicationClass() {
+    // TODO: Some day this should probably be abstract, but for now it only
+    // affects global search and there's no real burning need to go classify
+    // every PHID type.
     return null;
   }
 
@@ -96,10 +146,19 @@ abstract class PhabricatorPHIDType {
   public function loadNamedObjects(
     PhabricatorObjectQuery $query,
     array $names) {
-    throw new Exception("Not implemented!");
+    throw new PhutilMethodNotImplementedException();
   }
 
-  public static function getAllTypes() {
+
+  /**
+   * Get all known PHID types.
+   *
+   * To get PHID types a given user has access to, see
+   * @{method:getAllInstalledTypes}.
+   *
+   * @return dict<string, PhabricatorPHIDType> Map of type constants to types.
+   */
+  final public static function getAllTypes() {
     static $types;
     if ($types === null) {
       $objects = id(new PhutilSymbolLoader())
@@ -114,9 +173,13 @@ abstract class PhabricatorPHIDType {
           $that_class = $original[$type];
           $this_class = get_class($object);
           throw new Exception(
-            "Two PhabricatorPHIDType classes ({$that_class}, {$this_class}) ".
-            "both handle PHID type '{$type}'. A type may be handled by only ".
-            "one class.");
+            pht(
+              "Two %s classes (%s, %s) both handle PHID type '%s'. ".
+              "A type may be handled by only one class.",
+              __CLASS__,
+              $that_class,
+              $this_class,
+              $type));
         }
 
         $original[$type] = get_class($object);
@@ -127,6 +190,50 @@ abstract class PhabricatorPHIDType {
     }
 
     return $types;
+  }
+
+
+  /**
+   * Get all PHID types of applications installed for a given viewer.
+   *
+   * @param PhabricatorUser Viewing user.
+   * @return dict<string, PhabricatorPHIDType> Map of constants to installed
+   *  types.
+   */
+  public static function getAllInstalledTypes(PhabricatorUser $viewer) {
+    $all_types = self::getAllTypes();
+
+    $installed_types = array();
+
+    $app_classes = array();
+    foreach ($all_types as $key => $type) {
+      $app_class = $type->getPHIDTypeApplicationClass();
+
+      if ($app_class === null) {
+        // If the PHID type isn't bound to an application, include it as
+        // installed.
+        $installed_types[$key] = $type;
+        continue;
+      }
+
+      // Otherwise, we need to check if this application is installed before
+      // including the PHID type.
+      $app_classes[$app_class][$key] = $type;
+    }
+
+    if ($app_classes) {
+      $apps = id(new PhabricatorApplicationQuery())
+        ->setViewer($viewer)
+        ->withInstalled(true)
+        ->withClasses(array_keys($app_classes))
+        ->execute();
+
+      foreach ($apps as $app_class => $app) {
+        $installed_types += $app_classes[$app_class];
+      }
+    }
+
+    return $installed_types;
   }
 
 }

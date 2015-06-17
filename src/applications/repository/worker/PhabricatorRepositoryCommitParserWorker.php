@@ -13,20 +13,21 @@ abstract class PhabricatorRepositoryCommitParserWorker
 
     $commit_id = idx($this->getTaskData(), 'commitID');
     if (!$commit_id) {
-      return false;
+      throw new PhabricatorWorkerPermanentFailureException(
+        pht('No "%s" in task data.', 'commitID'));
     }
 
     $commit = id(new PhabricatorRepositoryCommit())->load($commit_id);
 
     if (!$commit) {
-      // TODO: Communicate permanent failure?
-      return false;
+      throw new PhabricatorWorkerPermanentFailureException(
+        pht('Commit "%s" does not exist.', $commit_id));
     }
 
     return $this->commit = $commit;
   }
 
-  final public function doWork() {
+  final protected function doWork() {
     if (!$this->loadCommit()) {
       return;
     }

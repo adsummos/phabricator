@@ -6,18 +6,21 @@ final class DifferentialAddCommentView extends AphrontView {
   private $actions;
   private $actionURI;
   private $draft;
-  private $auxFields;
   private $reviewers = array();
   private $ccs = array();
+  private $errorView;
 
-  public function setRevision($revision) {
-    $this->revision = $revision;
+  public function setInfoView(PHUIInfoView $error_view) {
+    $this->errorView = $error_view;
     return $this;
   }
 
-  public function setAuxFields(array $aux_fields) {
-    assert_instances_of($aux_fields, 'DifferentialFieldSpecification');
-    $this->auxFields = $aux_fields;
+  public function getErrorView() {
+    return $this->errorView;
+  }
+
+  public function setRevision($revision) {
+    $this->revision = $revision;
     return $this;
   }
 
@@ -49,9 +52,6 @@ final class DifferentialAddCommentView extends AphrontView {
   public function render() {
 
     $this->requireResource('differential-revision-add-comment-css');
-
-    $is_serious = PhabricatorEnv::getEnvConfig('phabricator.serious-business');
-
     $revision = $this->revision;
 
     $action = null;
@@ -67,6 +67,9 @@ final class DifferentialAddCommentView extends AphrontView {
       'resign' => pht('Suggest Reviewers'),
     );
 
+    $mailable_source = new PhabricatorMetaMTAMailableDatasource();
+    $reviewer_source = new PhabricatorProjectOrUserDatasource();
+
     $form = new AphrontFormView();
     $form
       ->setWorkflow(true)
@@ -80,7 +83,7 @@ final class DifferentialAddCommentView extends AphrontView {
           ->setValue($action)
           ->setID('comment-action')
           ->setOptions($this->actions))
-      ->appendChild(
+      ->appendControl(
         id(new AphrontFormTokenizerControl())
           ->setLabel($enable_reviewers ? $add_reviewers_labels[$action] :
             $add_reviewers_labels['add_reviewers'])
@@ -88,15 +91,17 @@ final class DifferentialAddCommentView extends AphrontView {
           ->setControlID('add-reviewers')
           ->setControlStyle($enable_reviewers ? null : 'display: none')
           ->setID('add-reviewers-tokenizer')
-          ->setDisableBehavior(true))
-      ->appendChild(
+          ->setDisableBehavior(true)
+          ->setDatasource($reviewer_source))
+      ->appendControl(
         id(new AphrontFormTokenizerControl())
-          ->setLabel(pht('Add CCs'))
+          ->setLabel(pht('Add Subscribers'))
           ->setName('ccs')
           ->setControlID('add-ccs')
           ->setControlStyle($enable_ccs ? null : 'display: none')
           ->setID('add-ccs-tokenizer')
-          ->setDisableBehavior(true))
+          ->setDisableBehavior(true)
+          ->setDatasource($mailable_source))
       ->appendChild(
         id(new PhabricatorRemarkupControl())
           ->setName('comment')
@@ -106,7 +111,7 @@ final class DifferentialAddCommentView extends AphrontView {
           ->setUser($this->user))
       ->appendChild(
         id(new AphrontFormSubmitControl())
-          ->setValue($is_serious ? pht('Submit') : pht('Clowncopterize')));
+          ->setValue(pht('Submit')));
 
     Javelin::initBehavior(
       'differential-add-reviewers-and-ccs',
@@ -118,35 +123,24 @@ final class DifferentialAddCommentView extends AphrontView {
               'add_reviewers' => 1,
               'resign' => 1,
             ),
-            'src' => '/typeahead/common/usersorprojects/',
+            'src' => $reviewer_source->getDatasourceURI(),
             'value' => $this->reviewers,
             'row' => 'add-reviewers',
-            'ondemand' => PhabricatorEnv::getEnvConfig('tokenizer.ondemand'),
             'labels' => $add_reviewers_labels,
-            'placeholder' => pht('Type a user or project name...'),
+            'placeholder' => $reviewer_source->getPlaceholderText(),
           ),
           'add-ccs-tokenizer' => array(
             'actions' => array('add_ccs' => 1),
-            'src' => '/typeahead/common/mailable/',
+            'src' => $mailable_source->getDatasourceURI(),
             'value' => $this->ccs,
             'row' => 'add-ccs',
-            'ondemand' => PhabricatorEnv::getEnvConfig('tokenizer.ondemand'),
-            'placeholder' => pht('Type a user or mailing list...'),
+            'placeholder' => $mailable_source->getPlaceholderText(),
           ),
         ),
         'select' => 'comment-action',
       ));
 
     $diff = $revision->loadActiveDiff();
-    $warnings = mpull($this->auxFields, 'renderWarningBoxForRevisionAccept');
-
-    Javelin::initBehavior(
-      'differential-accept-with-errors',
-      array(
-        'select' => 'comment-action',
-        'warnings' => 'warnings',
-      ));
-
     $rev_id = $revision->getID();
 
     Javelin::initBehavior(
@@ -165,21 +159,17 @@ final class DifferentialAddCommentView extends AphrontView {
         'inline'    => 'inline-comment-preview',
       ));
 
-    $warning_container = array();
-    foreach ($warnings as $warning) {
-      if ($warning) {
-        $warning_container[] = $warning->render();
-      }
-    }
+    $is_serious = PhabricatorEnv::getEnvConfig('phabricator.serious-business');
+    $header_text = $is_serious
+      ? pht('Add Comment')
+      : pht('Leap Into Action');
 
     $header = id(new PHUIHeaderView())
-      ->setHeader($is_serious ? pht('Add Comment') : pht('Leap Into Action'));
+      ->setHeader($header_text);
 
     $anchor = id(new PhabricatorAnchorView())
         ->setAnchorName('comment')
         ->setNavigationMarker(true);
-
-    $warn = phutil_tag('div', array('id' => 'warnings'), $warning_container);
 
     $loading = phutil_tag(
       'span',
@@ -197,8 +187,11 @@ final class DifferentialAddCommentView extends AphrontView {
     $comment_box = id(new PHUIObjectBoxView())
       ->setHeader($header)
       ->appendChild($anchor)
-      ->appendChild($warn)
       ->appendChild($form);
+
+    if ($this->errorView) {
+      $comment_box->setInfoView($this->errorView);
+    }
 
     return array($comment_box, $preview);
   }

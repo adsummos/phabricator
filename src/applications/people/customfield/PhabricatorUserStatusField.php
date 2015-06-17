@@ -21,19 +21,15 @@ final class PhabricatorUserStatusField
     return true;
   }
 
-  public function renderPropertyViewValue() {
+  public function isFieldEnabled() {
+    return PhabricatorApplication::isClassInstalled(
+      'PhabricatorCalendarApplication');
+  }
+
+  public function renderPropertyViewValue(array $handles) {
     $user = $this->getObject();
     $viewer = $this->requireViewer();
-
-    $statuses = id(new PhabricatorCalendarEvent())
-      ->loadCurrentStatuses(array($user->getPHID()));
-    if (!$statuses) {
-      return pht('Available');
-    }
-
-    $status = head($statuses);
-
-    return $status->getTerseSummary($viewer);
+    return $user->getAvailabilityDescription($viewer);
   }
 
 }

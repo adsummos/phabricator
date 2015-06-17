@@ -1,5 +1,15 @@
 <?php
 
+/**
+ * NOTE: When loading ExternalAccounts for use in an authentication context
+ * (that is, you're going to act as the account or link identities or anything
+ * like that) you should require CAN_EDIT capability even if you aren't actually
+ * editing the ExternalAccount.
+ *
+ * ExternalAccounts have a permissive CAN_VIEW policy (like users) because they
+ * interact directly with objects and can leave comments, sign documents, etc.
+ * However, CAN_EDIT is restricted to users who own the accounts.
+ */
 final class PhabricatorExternalAccountQuery
   extends PhabricatorCursorPagedPolicyAwareQuery {
 
@@ -52,7 +62,7 @@ final class PhabricatorExternalAccountQuery
     return $this;
   }
 
-  public function loadPage() {
+  protected function loadPage() {
     $table = new PhabricatorExternalAccount();
     $conn_r = $table->establishConnection('r');
 
@@ -67,7 +77,7 @@ final class PhabricatorExternalAccountQuery
     return $table->loadAllFromArray($data);
   }
 
-  public function willFilterPage(array $accounts) {
+  protected function willFilterPage(array $accounts) {
     if ($this->needImages) {
       $file_phids = mpull($accounts, 'getProfileImagePHID');
       $file_phids = array_filter($file_phids);
@@ -164,7 +174,7 @@ final class PhabricatorExternalAccountQuery
   }
 
   public function getQueryApplicationClass() {
-    return 'PhabricatorApplicationPeople';
+    return 'PhabricatorPeopleApplication';
   }
 
   /**

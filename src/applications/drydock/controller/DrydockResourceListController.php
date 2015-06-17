@@ -1,7 +1,6 @@
 <?php
 
-final class DrydockResourceListController extends DrydockResourceController
-  implements PhabricatorApplicationSearchResultsControllerInterface {
+final class DrydockResourceListController extends DrydockResourceController {
 
   private $queryKey;
 
@@ -14,21 +13,12 @@ final class DrydockResourceListController extends DrydockResourceController
   }
 
   public function processRequest() {
-    $request = $this->getRequest();
-    $controller = id(new PhabricatorApplicationSearchController($request))
+    $controller = id(new PhabricatorApplicationSearchController())
       ->setQueryKey($this->queryKey)
       ->setSearchEngine(new DrydockResourceSearchEngine())
       ->setNavigation($this->buildSideNavView());
 
     return $this->delegateToController($controller);
-  }
-
-  public function renderResultsList(
-    array $resources,
-    PhabricatorSavedQuery $query) {
-    assert_instances_of($resources, 'DrydockResource');
-
-    return $this->buildResourceListView($resources);
   }
 
 }

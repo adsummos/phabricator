@@ -4,10 +4,16 @@ final class HeraldTranscriptQuery
   extends PhabricatorCursorPagedPolicyAwareQuery {
 
   private $ids;
+  private $objectPHIDs;
   private $needPartialRecords;
 
   public function withIDs(array $ids) {
     $this->ids = $ids;
+    return $this;
+  }
+
+  public function withObjectPHIDs(array $phids) {
+    $this->objectPHIDs = $phids;
     return $this;
   }
 
@@ -16,7 +22,7 @@ final class HeraldTranscriptQuery
     return $this;
   }
 
-  public function loadPage() {
+  protected function loadPage() {
     $transcript = new HeraldTranscript();
     $conn_r = $transcript->establishConnection('r');
 
@@ -61,7 +67,7 @@ final class HeraldTranscriptQuery
     return $transcripts;
   }
 
-  public function willFilterPage(array $transcripts) {
+  protected function willFilterPage(array $transcripts) {
     $phids = mpull($transcripts, 'getObjectPHID');
 
     $objects = id(new PhabricatorObjectQuery())
@@ -79,7 +85,7 @@ final class HeraldTranscriptQuery
     return $transcripts;
   }
 
-  public function buildWhereClause(AphrontDatabaseConnection $conn_r) {
+  protected function buildWhereClause(AphrontDatabaseConnection $conn_r) {
     $where = array();
 
     if ($this->ids) {
@@ -89,13 +95,20 @@ final class HeraldTranscriptQuery
         $this->ids);
     }
 
+    if ($this->objectPHIDs) {
+      $where[] = qsprintf(
+        $conn_r,
+        'objectPHID in (%Ls)',
+        $this->objectPHIDs);
+    }
+
     $where[] = $this->buildPagingClause($conn_r);
 
     return $this->formatWhereClause($where);
   }
 
   public function getQueryApplicationClass() {
-    return 'PhabricatorApplicationHerald';
+    return 'PhabricatorHeraldApplication';
   }
 
 }

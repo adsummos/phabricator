@@ -30,8 +30,8 @@ final class PonderQuestionViewController extends PonderController {
 
     $authors = mpull($question->getAnswers(), null, 'getAuthorPHID');
     if (isset($authors[$user->getPHID()])) {
-      $answer_add_panel = id(new AphrontErrorView())
-        ->setSeverity(AphrontErrorView::SEVERITY_NODATA)
+      $answer_add_panel = id(new PHUIInfoView())
+        ->setSeverity(PHUIInfoView::SEVERITY_NODATA)
         ->appendChild(
           pht(
             'You have already answered this question. You can not answer '.
@@ -41,11 +41,17 @@ final class PonderQuestionViewController extends PonderController {
       $answer_add_panel
         ->setQuestion($question)
         ->setUser($user)
-        ->setActionURI("/ponder/answer/add/");
+        ->setActionURI('/ponder/answer/add/');
     }
 
     $header = id(new PHUIHeaderView())
       ->setHeader($question->getTitle());
+
+    if ($question->getStatus() == PonderQuestionStatus::STATUS_OPEN) {
+      $header->setStatus('fa-square-o', 'bluegrey', pht('Open'));
+    } else {
+      $header->setStatus('fa-check-square-o', 'dark', pht('Closed'));
+    }
 
     $actions = $this->buildActionListView($question);
     $properties = $this->buildPropertyListView($question, $actions);
@@ -55,7 +61,6 @@ final class PonderQuestionViewController extends PonderController {
       ->addPropertyList($properties);
 
     $crumbs = $this->buildApplicationCrumbs($this->buildSideNavView());
-    $crumbs->setActionList($actions);
     $crumbs->addTextCrumb('Q'.$this->questionID, '/Q'.$this->questionID);
 
     return $this->buildApplicationPage(
@@ -64,10 +69,9 @@ final class PonderQuestionViewController extends PonderController {
         $object_box,
         $question_xactions,
         $answers,
-        $answer_add_panel
+        $answer_add_panel,
       ),
       array(
-        'device' => true,
         'title' => 'Q'.$question->getID().' '.$question->getTitle(),
         'pageObjects' => array_merge(
           array($question->getPHID()),
@@ -93,20 +97,20 @@ final class PonderQuestionViewController extends PonderController {
 
     $view->addAction(
       id(new PhabricatorActionView())
-        ->setIcon('edit')
+        ->setIcon('fa-pencil')
         ->setName(pht('Edit Question'))
         ->setHref($this->getApplicationURI("/question/edit/{$id}/"))
         ->setDisabled(!$can_edit)
         ->setWorkflow(!$can_edit));
 
     if ($question->getStatus() == PonderQuestionStatus::STATUS_OPEN) {
-      $name = pht("Close Question");
-      $icon = "delete";
-      $href = "close";
+      $name = pht('Close Question');
+      $icon = 'fa-check-square-o';
+      $href = 'close';
     } else {
-      $name = pht("Reopen Question");
-      $icon = "enable";
-      $href = "open";
+      $name = pht('Reopen Question');
+      $icon = 'fa-square-o';
+      $href = 'open';
     }
 
     $view->addAction(
@@ -120,7 +124,7 @@ final class PonderQuestionViewController extends PonderController {
 
     $view->addAction(
       id(new PhabricatorActionView())
-        ->setIcon('transcript')
+        ->setIcon('fa-list')
         ->setName(pht('View History'))
         ->setHref($this->getApplicationURI("/question/history/{$id}/")));
 
@@ -137,15 +141,13 @@ final class PonderQuestionViewController extends PonderController {
       ->setObject($question)
       ->setActionList($actions);
 
-    $this->loadHandles(array($question->getAuthorPHID()));
-
     $view->addProperty(
       pht('Status'),
       PonderQuestionStatus::getQuestionStatusFullName($question->getStatus()));
 
     $view->addProperty(
       pht('Author'),
-      $this->getHandle($question->getAuthorPHID())->renderLink());
+      $viewer->renderHandle($question->getAuthorPHID()));
 
     $view->addProperty(
       pht('Created'),
@@ -179,31 +181,14 @@ final class PonderQuestionViewController extends PonderController {
   }
 
   private function buildQuestionTransactions(PonderQuestion $question) {
-    $viewer = $this->getRequest()->getUser();
+    $viewer = $this->getViewer();
     $id = $question->getID();
 
-    $xactions = id(new PonderQuestionTransactionQuery())
-      ->setViewer($viewer)
-      ->withTransactionTypes(array(PhabricatorTransactions::TYPE_COMMENT))
-      ->withObjectPHIDs(array($question->getPHID()))
-      ->execute();
-
-    $engine = id(new PhabricatorMarkupEngine())
-      ->setViewer($viewer);
-    foreach ($xactions as $xaction) {
-      if ($xaction->getComment()) {
-        $engine->addObject(
-          $xaction->getComment(),
-          PhabricatorApplicationTransactionComment::MARKUP_FIELD_COMMENT);
-      }
-    }
-    $engine->process();
-
-    $timeline = id(new PhabricatorApplicationTransactionView())
-      ->setUser($viewer)
-      ->setObjectPHID($question->getPHID())
-      ->setTransactions($xactions)
-      ->setMarkupEngine($engine);
+    $timeline = $this->buildTransactionTimeline(
+      $question,
+      id(new PonderQuestionTransactionQuery())
+      ->withTransactionTypes(array(PhabricatorTransactions::TYPE_COMMENT)));
+    $xactions = $timeline->getTransactions();
 
     $add_comment = id(new PhabricatorApplicationTransactionCommentView())
       ->setUser($viewer)
@@ -221,14 +206,18 @@ final class PonderQuestionViewController extends PonderController {
       ));
   }
 
+  /**
+   * This is fairly non-standard; building N timelines at once (N = number of
+   * answers) is tricky business.
+   *
+   * TODO - re-factor this to ajax in one answer panel at a time in a more
+   * standard fashion. This is necessary to scale this application.
+   */
   private function buildAnswers(array $answers) {
     $request = $this->getRequest();
     $viewer = $request->getUser();
 
     $out = array();
-
-    $phids = mpull($answers, 'getAuthorPHID');
-    $this->loadHandles($phids);
 
     $xactions = id(new PonderAnswerTransactionQuery())
       ->setViewer($viewer)
@@ -259,7 +248,7 @@ final class PonderQuestionViewController extends PonderController {
       $out[] = id(new PhabricatorAnchorView())
         ->setAnchorName("A$id");
       $header = id(new PHUIHeaderView())
-        ->setHeader($this->getHandle($author_phid)->getFullName());
+        ->setHeader($viewer->renderHandle($author_phid));
 
       $actions = $this->buildAnswerActions($answer);
       $properties = $this->buildAnswerProperties($answer, $actions);
@@ -316,7 +305,7 @@ final class PonderQuestionViewController extends PonderController {
 
     $view->addAction(
       id(new PhabricatorActionView())
-        ->setIcon('edit')
+        ->setIcon('fa-pencil')
         ->setName(pht('Edit Answer'))
         ->setHref($this->getApplicationURI("/answer/edit/{$id}/"))
         ->setDisabled(!$can_edit)
@@ -324,7 +313,7 @@ final class PonderQuestionViewController extends PonderController {
 
     $view->addAction(
       id(new PhabricatorActionView())
-        ->setIcon('transcript')
+        ->setIcon('fa-list')
         ->setName(pht('View History'))
         ->setHref($this->getApplicationURI("/answer/history/{$id}/")));
 

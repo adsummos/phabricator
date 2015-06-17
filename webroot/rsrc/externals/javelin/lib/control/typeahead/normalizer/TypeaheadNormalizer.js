@@ -4,9 +4,6 @@
  * @javelin
  */
 
-/**
- * @group control
- */
 JX.install('TypeaheadNormalizer', {
   statics : {
     /**
@@ -17,9 +14,14 @@ JX.install('TypeaheadNormalizer', {
      * @return string Normalized string.
      */
     normalize : function(str) {
+
+      // NOTE: We specifically normalize "(" and ")" into spaces so that
+      // we can match tokenizer functions like "members(project)".
+
       return ('' + str)
         .toLocaleLowerCase()
-        .replace(/[\.,-\/#!$%\^&\*;:{}=\-_`~()]/g, '')
+        .replace(/[\.,\/#!$%\^&\*;:{}=_`~]/g, '')
+        .replace(/[-\[\]\(\)]/g, ' ')
         .replace(/ +/g, ' ')
         .replace(/^\s*|\s*$/g, '');
     }

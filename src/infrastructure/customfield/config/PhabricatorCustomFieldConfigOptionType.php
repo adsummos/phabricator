@@ -11,10 +11,7 @@ final class PhabricatorCustomFieldConfigOptionType
     $errors = array();
     $storage_value = $request->getStr('value');
 
-    $in_value = json_decode($storage_value, true);
-    if (!is_array($in_value)) {
-      $in_value = array();
-    }
+    $in_value = phutil_json_decode($storage_value);
 
     // When we submit from JS, we submit a list (since maps are not guaranteed
     // to retain order). Convert it into a map for storage (since it's far more
@@ -37,15 +34,16 @@ final class PhabricatorCustomFieldConfigOptionType
       $field_spec = PhabricatorEnv::getEnvConfig($option->getKey());
     }
 
-    // Get all of the fields (including disabled fields) by querying for them
-    // with a faux spec where no fields are disabled.
-    $faux_spec = $field_spec;
-    foreach ($faux_spec as $key => $spec) {
-      unset($faux_spec[$key]['disabled']);
-    }
+    // TODO: We might need to build a real object here eventually.
+    $faux_object = null;
+
     $fields = PhabricatorCustomField::buildFieldList(
       $field_base_class,
-      $faux_spec);
+      $field_spec,
+      $faux_object,
+      array(
+        'withDisabled' => true,
+      ));
 
     $list_id = celerity_generate_unique_node_id();
     $input_id = celerity_generate_unique_node_id();
@@ -61,7 +59,8 @@ final class PhabricatorCustomFieldConfigOptionType
         ->addAttribute($field->getFieldDescription())
         ->setHeader($field->getFieldName());
 
-      $is_disabled = !empty($field_spec[$key]['disabled']);
+      $spec = idx($field_spec, $key, array());
+      $is_disabled = idx($spec, 'disabled', $field->shouldDisableByDefault());
 
       $disabled_item = clone $item;
       $enabled_item = clone $item;
@@ -78,21 +77,21 @@ final class PhabricatorCustomFieldConfigOptionType
         id(new PHUIListItemView())
           ->setHref('#')
           ->addSigil('field-spec-toggle')
-          ->setIcon('new'));
+          ->setIcon('fa-plus'));
 
       $enabled_item->setBarColor('green');
 
       if (!$field->canDisableField()) {
         $enabled_item->addAction(
           id(new PHUIListItemView())
-            ->setIcon('lock-grey'));
+            ->setIcon('fa-lock grey'));
         $enabled_item->addIcon('none', pht('Permanent Field'));
       } else {
         $enabled_item->addAction(
           id(new PHUIListItemView())
             ->setHref('#')
             ->addSigil('field-spec-toggle')
-            ->setIcon('delete'));
+            ->setIcon('fa-times'));
       }
 
       $fields[$key] = array(
@@ -108,7 +107,7 @@ final class PhabricatorCustomFieldConfigOptionType
         'id' => $input_id,
         'type' => 'hidden',
         'name' => 'value',
-        'value' => json_encode($display_value),
+        'value' => '',
       ));
 
     Javelin::initBehavior(

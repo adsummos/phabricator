@@ -7,16 +7,16 @@ $viewer = PhabricatorUser::getOmnipotentUser();
 $map = array();
 foreach (new LiskMigrationIterator($table) as $repository) {
   $callsign = $repository->getCallsign();
-  echo "Examining repository {$callsign}...\n";
+  echo pht('Examining repository %s...', $callsign)."\n";
 
   if ($repository->getCredentialPHID()) {
-    echo "...already has a Credential.\n";
+    echo pht('...already has a Credential.')."\n";
     continue;
   }
 
   $raw_uri = $repository->getRemoteURI();
   if (!$raw_uri) {
-    echo "...no remote URI.\n";
+    echo pht('...no remote URI.')."\n";
     continue;
   }
 
@@ -26,7 +26,7 @@ foreach (new LiskMigrationIterator($table) as $repository) {
   if ($proto == 'http' || $proto == 'https' || $proto == 'svn') {
     $username = $repository->getDetail('http-login');
     $secret = $repository->getDetail('http-pass');
-    $type = PassphraseCredentialTypePassword::CREDENTIAL_TYPE;
+    $type = PassphrasePasswordCredentialType::CREDENTIAL_TYPE;
   } else {
     $username = $repository->getDetail('ssh-login');
     if (!$username) {
@@ -42,20 +42,20 @@ foreach (new LiskMigrationIterator($table) as $repository) {
     $file = $repository->getDetail('ssh-keyfile');
     if ($file) {
       $secret = $file;
-      $type = PassphraseCredentialTypeSSHPrivateKeyFile::CREDENTIAL_TYPE;
+      $type = PassphraseSSHPrivateKeyFileCredentialType::CREDENTIAL_TYPE;
     } else {
       $secret = $repository->getDetail('ssh-key');
-      $type = PassphraseCredentialTypeSSHPrivateKeyText::CREDENTIAL_TYPE;
+      $type = PassphraseSSHPrivateKeyTextCredentialType::CREDENTIAL_TYPE;
     }
   }
 
   if (!$username || !$secret) {
-    echo "...no credentials set.\n";
+    echo pht('...no credentials set.')."\n";
     continue;
   }
 
   $map[$type][$username][$secret][] = $repository;
-  echo "...will migrate.\n";
+  echo pht('...will migrate.')."\n";
 }
 
 $passphrase = new PassphraseSecret();
@@ -67,11 +67,16 @@ foreach ($map as $credential_type => $credential_usernames) {
   foreach ($credential_usernames as $username => $credential_secrets) {
     foreach ($credential_secrets as $secret_plaintext => $repositories) {
       $callsigns = mpull($repositories, 'getCallsign');
+
+      $signs = implode(', ', $callsigns);
+
       $name = pht(
         'Migrated Repository Credential (%s)',
-        phutil_utf8_shorten(implode(', ', $callsigns), 128));
+        id(new PhutilUTF8StringTruncator())
+          ->setMaximumGlyphs(128)
+          ->truncateString($signs));
 
-      echo "Creating: {$name}...\n";
+      echo pht('Creating: %s...', $name)."\n";
 
       $secret = id(new PassphraseSecret())
         ->setSecretData($secret_plaintext)
@@ -86,8 +91,29 @@ foreach ($map as $credential_type => $credential_usernames) {
         ->setEditPolicy(PhabricatorPolicies::POLICY_ADMIN)
         ->setName($name)
         ->setUsername($username)
-        ->setSecretID($secret_id)
-        ->save();
+        ->setSecretID($secret_id);
+
+      $credential->setPHID($credential->generatePHID());
+
+      queryfx(
+        $credential->establishConnection('w'),
+        'INSERT INTO %T (name, credentialType, providesType, viewPolicy,
+          editPolicy, description, username, secretID, isDestroyed,
+          phid, dateCreated, dateModified)
+          VALUES (%s, %s, %s, %s, %s, %s, %s, %d, %d, %s, %d, %d)',
+        $credential->getTableName(),
+        $credential->getName(),
+        $credential->getCredentialType(),
+        $credential->getProvidesType(),
+        $credential->getViewPolicy(),
+        $credential->getEditPolicy(),
+        $credential->getDescription(),
+        $credential->getUsername(),
+        $credential->getSecretID(),
+        $credential->getIsDestroyed(),
+        $credential->getPHID(),
+        time(),
+        time());
 
       foreach ($repositories as $repository) {
         queryfx(
@@ -97,10 +123,9 @@ foreach ($map as $credential_type => $credential_usernames) {
           $credential->getPHID(),
           $repository->getID());
 
-        $edge_type = PhabricatorEdgeConfig::TYPE_OBJECT_USES_CREDENTIAL;
+        $edge_type = PhabricatorObjectUsesCredentialsEdgeType::EDGECONST;
 
         id(new PhabricatorEdgeEditor())
-          ->setActor($viewer)
           ->addEdge($repository->getPHID(), $edge_type, $credential->getPHID())
           ->save();
       }
@@ -111,4 +136,4 @@ foreach ($map as $credential_type => $credential_usernames) {
 $table->saveTransaction();
 $passphrase->saveTransaction();
 
-echo "Done.\n";
+echo pht('Done.')."\n";

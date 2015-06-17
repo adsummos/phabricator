@@ -9,8 +9,6 @@
  *     ->withParticipantPHIDs(array($my_phid))
  *     ->withParticipationStatus(ConpherenceParticipationStatus::BEHIND)
  *     ->execute();
- *
- * @group conpherence
  */
 final class ConpherenceParticipantCountQuery
   extends PhabricatorOffsetPagedQuery {
@@ -44,7 +42,7 @@ final class ConpherenceParticipantCountQuery
     return ipull($rows, 'count', 'participantPHID');
   }
 
-  private function buildWhereClause($conn_r) {
+  protected function buildWhereClause(AphrontDatabaseConnection $conn_r) {
     $where = array();
 
     if ($this->participantPHIDs) {
@@ -65,7 +63,6 @@ final class ConpherenceParticipantCountQuery
   }
 
   private function buildGroupByClause(AphrontDatabaseConnection $conn_r) {
-
     $group_by = qsprintf(
       $conn_r,
       'GROUP BY participantPHID');

@@ -29,7 +29,7 @@ final class PhabricatorUserBlurbField
     return true;
   }
 
-  protected function didSetObject(PhabricatorCustomFieldInterface $object) {
+  public function readValueFromObject(PhabricatorCustomFieldInterface $object) {
     $this->value = $object->loadUserProfile()->getBlurb();
   }
 
@@ -50,8 +50,9 @@ final class PhabricatorUserBlurbField
     $this->value = $request->getStr($this->getFieldKey());
   }
 
-  public function renderEditControl() {
+  public function renderEditControl(array $handles) {
     return id(new PhabricatorRemarkupControl())
+      ->setUser($this->getViewer())
       ->setName($this->getFieldKey())
       ->setValue($this->value)
       ->setLabel($this->getFieldName());
@@ -61,7 +62,7 @@ final class PhabricatorUserBlurbField
     return null;
   }
 
-  public function renderPropertyViewValue() {
+  public function renderPropertyViewValue(array $handles) {
     $blurb = $this->getObject()->loadUserProfile()->getBlurb();
     if (!strlen($blurb)) {
       return null;

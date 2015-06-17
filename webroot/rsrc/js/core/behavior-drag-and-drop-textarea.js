@@ -19,7 +19,7 @@ JX.behavior('aphront-drag-and-drop-textarea', function(config) {
     // reference, append the new reference if the selected text looks like an
     // existing file reference.
     if (text.match(/^\{F/)) {
-      ref = text + "\n\n" + ref;
+      ref = text + '\n\n' + ref;
     }
 
     JX.TextAreaUtils.setSelectionText(target, ref);
@@ -27,11 +27,12 @@ JX.behavior('aphront-drag-and-drop-textarea', function(config) {
 
   if (JX.PhabricatorDragAndDropFileUpload.isSupported()) {
     var drop = new JX.PhabricatorDragAndDropFileUpload(target)
-      .setURI(config.uri);
-    drop.listen('didBeginDrag', function(e) {
+      .setURI(config.uri)
+      .setChunkThreshold(config.chunkThreshold);
+    drop.listen('didBeginDrag', function() {
       JX.DOM.alterClass(target, config.activatedClass, true);
     });
-    drop.listen('didEndDrag', function(e) {
+    drop.listen('didEndDrag', function() {
       JX.DOM.alterClass(target, config.activatedClass, false);
     });
     drop.listen('didUpload', onupload);
@@ -39,4 +40,3 @@ JX.behavior('aphront-drag-and-drop-textarea', function(config) {
   }
 
 });
-

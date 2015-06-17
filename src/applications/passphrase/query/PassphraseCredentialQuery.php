@@ -8,6 +8,8 @@ final class PassphraseCredentialQuery
   private $credentialTypes;
   private $providesTypes;
   private $isDestroyed;
+  private $allowConduit;
+  private $nameContains;
 
   private $needSecrets;
 
@@ -33,6 +35,16 @@ final class PassphraseCredentialQuery
 
   public function withIsDestroyed($destroyed) {
     $this->isDestroyed = $destroyed;
+    return $this;
+  }
+
+  public function withAllowConduit($allow_conduit) {
+    $this->allowConduit = $allow_conduit;
+    return $this;
+  }
+
+  public function withNameContains($name_contains) {
+    $this->nameContains = $name_contains;
     return $this;
   }
 
@@ -87,7 +99,7 @@ final class PassphraseCredentialQuery
     return $page;
   }
 
-  private function buildWhereClause(AphrontDatabaseConnection $conn_r) {
+  protected function buildWhereClause(AphrontDatabaseConnection $conn_r) {
     $where = array();
 
     $where[] = $this->buildPagingClause($conn_r);
@@ -127,11 +139,25 @@ final class PassphraseCredentialQuery
         (int)$this->isDestroyed);
     }
 
+    if ($this->allowConduit !== null) {
+      $where[] = qsprintf(
+        $conn_r,
+        'allowConduit = %d',
+        (int)$this->allowConduit);
+    }
+
+    if (strlen($this->nameContains)) {
+      $where[] = qsprintf(
+        $conn_r,
+        'name LIKE %~',
+        $this->nameContains);
+    }
+
     return $this->formatWhereClause($where);
   }
 
   public function getQueryApplicationClass() {
-    return 'PhabricatorApplicationPassphrase';
+    return 'PhabricatorPassphraseApplication';
   }
 
 }

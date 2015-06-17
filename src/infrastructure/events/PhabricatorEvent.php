@@ -1,18 +1,10 @@
 <?php
 
-
-/**
- * @group events
- */
 final class PhabricatorEvent extends PhutilEvent {
 
   private $user;
   private $aphrontRequest;
   private $conduitRequest;
-
-  public function __construct($type, array $data = array()) {
-    parent::__construct($type, $data);
-  }
 
   public function setUser(PhabricatorUser $user) {
     $this->user = $user;
@@ -42,8 +34,3 @@ final class PhabricatorEvent extends PhutilEvent {
   }
 
 }
-
-
-
-
-

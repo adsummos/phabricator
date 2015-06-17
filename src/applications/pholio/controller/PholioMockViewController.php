@@ -1,8 +1,5 @@
 <?php
 
-/**
- * @group pholio
- */
 final class PholioMockViewController extends PholioController {
 
   private $id;
@@ -34,43 +31,45 @@ final class PholioMockViewController extends PholioController {
       ->setViewer($user)
       ->withIDs(array($this->id))
       ->needImages(true)
-      ->needCoverFiles(true)
+      ->needInlineComments(true)
       ->executeOne();
 
     if (!$mock) {
       return new Aphront404Response();
     }
 
-    $xactions = id(new PholioTransactionQuery())
-      ->setViewer($user)
-      ->withObjectPHIDs(array($mock->getPHID()))
-      ->execute();
-
     $phids = PhabricatorEdgeQuery::loadDestinationPHIDs(
       $mock->getPHID(),
-      PhabricatorEdgeConfig::TYPE_MOCK_HAS_TASK);
+      PholioMockHasTaskEdgeType::EDGECONST);
     $this->setManiphestTaskPHIDs($phids);
-    $phids[] = $mock->getAuthorPHID();
-    $this->loadHandles($phids);
 
     $engine = id(new PhabricatorMarkupEngine())
       ->setViewer($user);
     $engine->addObject($mock, PholioMock::MARKUP_FIELD_DESCRIPTION);
-    foreach ($xactions as $xaction) {
-      if ($xaction->getComment()) {
-        $engine->addObject(
-          $xaction->getComment(),
-          PhabricatorApplicationTransactionComment::MARKUP_FIELD_COMMENT);
-      }
-    }
-    $engine->process();
 
     $title = $mock->getName();
+
+    if ($mock->isClosed()) {
+      $header_icon = 'fa-ban';
+      $header_name = pht('Closed');
+      $header_color = 'dark';
+    } else {
+      $header_icon = 'fa-square-o';
+      $header_name = pht('Open');
+      $header_color = 'bluegrey';
+    }
 
     $header = id(new PHUIHeaderView())
       ->setHeader($title)
       ->setUser($user)
+      ->setStatus($header_icon, $header_color, $header_name)
       ->setPolicyObject($mock);
+
+    $timeline = $this->buildTransactionTimeline(
+      $mock,
+      new PholioTransactionQuery(),
+      $engine);
+    $timeline->setMock($mock);
 
     $actions = $this->buildActionView($mock);
     $properties = $this->buildPropertyView($mock, $engine, $actions);
@@ -78,38 +77,39 @@ final class PholioMockViewController extends PholioController {
     require_celerity_resource('pholio-css');
     require_celerity_resource('pholio-inline-comments-css');
 
-    $image_status = $this->getImageStatus($mock, $this->imageID);
-
     $comment_form_id = celerity_generate_unique_node_id();
-    $output = id(new PholioMockImagesView())
+    $mock_view = id(new PholioMockImagesView())
       ->setRequestURI($request->getRequestURI())
       ->setCommentFormID($comment_form_id)
       ->setUser($user)
       ->setMock($mock)
       ->setImageID($this->imageID);
+    $this->addExtraQuicksandConfig(
+      array('mockViewConfig' => $mock_view->getBehaviorConfig()));
 
-    $xaction_view = id(new PholioTransactionView())
-      ->setUser($this->getRequest()->getUser())
-      ->setObjectPHID($mock->getPHID())
-      ->setTransactions($xactions)
-      ->setMarkupEngine($engine);
+    $output = id(new PHUIObjectBoxView())
+      ->setHeaderText(pht('Image'))
+      ->appendChild($mock_view);
 
     $add_comment = $this->buildAddCommentView($mock, $comment_form_id);
 
     $crumbs = $this->buildApplicationCrumbs();
-    $crumbs->setActionList($actions);
     $crumbs->addTextCrumb('M'.$mock->getID(), '/M'.$mock->getID());
 
     $object_box = id(new PHUIObjectBoxView())
       ->setHeader($header)
       ->addPropertyList($properties);
 
+    $thumb_grid = id(new PholioMockThumbGridView())
+      ->setUser($user)
+      ->setMock($mock);
+
     $content = array(
       $crumbs,
-      $image_status,
       $object_box,
-      $output->render(),
-      $xaction_view,
+      $output,
+      $thumb_grid,
+      $timeline,
       $add_comment,
     );
 
@@ -117,46 +117,8 @@ final class PholioMockViewController extends PholioController {
       $content,
       array(
         'title' => 'M'.$mock->getID().' '.$title,
-        'device' => true,
         'pageObjects' => array($mock->getPHID()),
       ));
-  }
-
-  private function getImageStatus(PholioMock $mock, $image_id) {
-    $status = null;
-    $images = $mock->getImages();
-    foreach ($images as $image) {
-      if ($image->getID() == $image_id) {
-        return $status;
-      }
-    }
-
-    $images = $mock->getAllImages();
-    $images = mpull($images, null, 'getID');
-    $image = idx($images, $image_id);
-
-    if ($image) {
-      $history = $mock->getImageHistorySet($image_id);
-      $latest_image = last($history);
-      $href = $this->getApplicationURI(
-        'image/history/'.$latest_image->getID().'/');
-      $status = id(new AphrontErrorView())
-        ->setSeverity(AphrontErrorView::SEVERITY_NOTICE)
-        ->setTitle(pht('The requested image is obsolete.'))
-        ->appendChild(phutil_tag(
-          'p',
-          array(),
-          array(
-            pht('You are viewing this mock with the latest image set.'),
-            ' ',
-            phutil_tag(
-              'a',
-              array('href' => $href),
-              pht(
-                'Click here to see the history of the now obsolete image.')))));
-    }
-
-    return $status;
   }
 
   private function buildActionView(PholioMock $mock) {
@@ -174,7 +136,7 @@ final class PholioMockViewController extends PholioController {
 
     $actions->addAction(
       id(new PhabricatorActionView())
-      ->setIcon('edit')
+      ->setIcon('fa-pencil')
       ->setName(pht('Edit Mock'))
       ->setHref($this->getApplicationURI('/edit/'.$mock->getID().'/'))
       ->setDisabled(!$can_edit)
@@ -182,7 +144,7 @@ final class PholioMockViewController extends PholioController {
 
     $actions->addAction(
       id(new PhabricatorActionView())
-      ->setIcon('attach')
+      ->setIcon('fa-anchor')
       ->setName(pht('Edit Maniphest Tasks'))
       ->setHref("/search/attach/{$mock->getPHID()}/TASK/edge/")
       ->setDisabled(!$user->isLoggedIn())
@@ -205,7 +167,7 @@ final class PholioMockViewController extends PholioController {
 
     $properties->addProperty(
       pht('Author'),
-      $this->getHandle($mock->getAuthorPHID())->renderLink());
+      $user->renderHandle($mock->getAuthorPHID()));
 
     $properties->addProperty(
       pht('Created'),
@@ -214,7 +176,7 @@ final class PholioMockViewController extends PholioController {
     if ($this->getManiphestTaskPHIDs()) {
       $properties->addProperty(
         pht('Maniphest Tasks'),
-        $this->renderHandlesForPHIDs($this->getManiphestTaskPHIDs()));
+        $user->renderHandleList($this->getManiphestTaskPHIDs()));
     }
 
     $properties->invokeWillRenderEvent();
@@ -235,14 +197,9 @@ final class PholioMockViewController extends PholioController {
     $draft = PhabricatorDraft::newFromUserAndKey($user, $mock->getPHID());
 
     $is_serious = PhabricatorEnv::getEnvConfig('phabricator.serious-business');
-
     $title = $is_serious
       ? pht('Add Comment')
       : pht('History Beckons');
-
-    $button_name = $is_serious
-      ? pht('Add Comment')
-      : pht('Answer The Call');
 
     $form = id(new PhabricatorApplicationTransactionCommentView())
       ->setUser($user)
@@ -250,7 +207,7 @@ final class PholioMockViewController extends PholioController {
       ->setFormID($comment_form_id)
       ->setDraft($draft)
       ->setHeaderText($title)
-      ->setSubmitButtonName($button_name)
+      ->setSubmitButtonName(pht('Add Comment'))
       ->setAction($this->getApplicationURI('/comment/'.$mock->getID().'/'))
       ->setRequestURI($this->getRequest()->getRequestURI());
 

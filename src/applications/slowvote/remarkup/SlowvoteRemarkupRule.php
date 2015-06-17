@@ -1,10 +1,6 @@
 <?php
 
-/**
- * @group slowvote
- */
-final class SlowvoteRemarkupRule
-  extends PhabricatorRemarkupRuleObject {
+final class SlowvoteRemarkupRule extends PhabricatorObjectRemarkupRule {
 
   protected function getObjectNamePrefix() {
     return 'V';
@@ -22,7 +18,11 @@ final class SlowvoteRemarkupRule
       ->execute();
   }
 
-  protected function renderObjectEmbed($object, $handle, $options) {
+  protected function renderObjectEmbed(
+    $object,
+    PhabricatorObjectHandle $handle,
+    $options) {
+
     $viewer = $this->getEngine()->getConfig('viewer');
 
     $embed = id(new SlowvoteEmbedView())

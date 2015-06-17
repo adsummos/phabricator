@@ -1,7 +1,10 @@
 <?php
 
 final class DivinerLiveSymbol extends DivinerDAO
-  implements PhabricatorPolicyInterface, PhabricatorMarkupInterface {
+  implements
+    PhabricatorPolicyInterface,
+    PhabricatorMarkupInterface,
+    PhabricatorDestructibleInterface {
 
   protected $bookPHID;
   protected $context;
@@ -13,6 +16,7 @@ final class DivinerLiveSymbol extends DivinerDAO
   protected $nodeHash;
 
   protected $title;
+  protected $titleSlugHash;
   protected $groupName;
   protected $summary;
   protected $isDocumentable = 0;
@@ -22,16 +26,63 @@ final class DivinerLiveSymbol extends DivinerDAO
   private $extends = self::ATTACHABLE;
   private $children = self::ATTACHABLE;
 
-  public function getConfiguration() {
+  protected function getConfiguration() {
     return array(
       self::CONFIG_AUX_PHID => true,
       self::CONFIG_TIMESTAMPS => false,
+      self::CONFIG_COLUMN_SCHEMA => array(
+        'context' => 'text255?',
+        'type' => 'text32',
+        'name' => 'text255',
+        'atomIndex' => 'uint32',
+        'identityHash' => 'bytes12',
+        'graphHash' => 'text64?',
+        'title' => 'text?',
+        'titleSlugHash' => 'bytes12?',
+        'groupName' => 'text255?',
+        'summary' => 'text?',
+        'isDocumentable' => 'bool',
+        'nodeHash' => 'text64?',
+      ),
+      self::CONFIG_KEY_SCHEMA => array(
+        'key_phid' => null,
+        'identityHash' => array(
+          'columns' => array('identityHash'),
+          'unique' => true,
+        ),
+        'phid' => array(
+          'columns' => array('phid'),
+          'unique' => true,
+        ),
+        'graphHash' => array(
+          'columns' => array('graphHash'),
+          'unique' => true,
+        ),
+        'nodeHash' => array(
+          'columns' => array('nodeHash'),
+          'unique' => true,
+        ),
+        'bookPHID' => array(
+          'columns' => array(
+            'bookPHID',
+            'type',
+            'name(64)',
+            'context(64)',
+            'atomIndex',
+          ),
+        ),
+        'name' => array(
+          'columns' => array('name(64)'),
+        ),
+        'key_slug' => array(
+          'columns' => array('titleSlugHash'),
+        ),
+      ),
     ) + parent::getConfiguration();
   }
 
   public function generatePHID() {
-    return PhabricatorPHID::generateNewPHID(
-      DivinerPHIDTypeAtom::TYPECONST);
+    return PhabricatorPHID::generateNewPHID(DivinerAtomPHIDType::TYPECONST);
   }
 
   public function getBook() {
@@ -47,8 +98,12 @@ final class DivinerLiveSymbol extends DivinerDAO
     return $this->assertAttached($this->atom);
   }
 
-  public function attachAtom(DivinerLiveAtom $atom) {
-    $this->atom = DivinerAtom::newFromDictionary($atom->getAtomData());
+  public function attachAtom(DivinerLiveAtom $atom = null) {
+    if ($atom === null) {
+      $this->atom = null;
+    } else {
+      $this->atom = DivinerAtom::newFromDictionary($atom->getAtomData());
+    }
     return $this;
   }
 
@@ -73,14 +128,18 @@ final class DivinerLiveSymbol extends DivinerDAO
   }
 
   public function getSortKey() {
-    return $this->getTitle();
+    // Sort articles before other types of content. Then, sort atoms in a
+    // case-insensitive way.
+    return sprintf(
+      '%c:%s',
+      ($this->getType() == DivinerAtom::TYPE_ARTICLE ? '0' : '1'),
+      phutil_utf8_strtolower($this->getTitle()));
   }
 
   public function save() {
-
     // NOTE: The identity hash is just a sanity check because the unique tuple
-    // on this table is way way too long to fit into a normal UNIQUE KEY. We
-    // don't use it directly, but its existence prevents duplicate records.
+    // on this table is way way too long to fit into a normal `UNIQUE KEY`.
+    // We don't use it directly, but its existence prevents duplicate records.
 
     if (!$this->identityHash) {
       $this->identityHash = PhabricatorHash::digestForIndex(
@@ -99,14 +158,30 @@ final class DivinerLiveSymbol extends DivinerDAO
 
   public function getTitle() {
     $title = parent::getTitle();
+
     if (!strlen($title)) {
       $title = $this->getName();
     }
+
     return $title;
   }
 
+  public function setTitle($value) {
+    $this->writeField('title', $value);
+
+    if (strlen($value)) {
+      $slug = DivinerAtomRef::normalizeTitleString($value);
+      $hash = PhabricatorHash::digestForIndex($slug);
+      $this->titleSlugHash = $hash;
+    } else {
+      $this->titleSlugHash = null;
+    }
+
+    return $this;
+  }
+
   public function attachExtends(array $extends) {
-    assert_instances_of($extends, 'DivinerLiveSymbol');
+    assert_instances_of($extends, __CLASS__);
     $this->extends = $extends;
     return $this;
   }
@@ -116,7 +191,7 @@ final class DivinerLiveSymbol extends DivinerDAO
   }
 
   public function attachChildren(array $children) {
-    assert_instances_of($children, 'DivinerLiveSymbol');
+    assert_instances_of($children, __CLASS__);
     $this->children = $children;
     return $this;
   }
@@ -128,15 +203,14 @@ final class DivinerLiveSymbol extends DivinerDAO
 
 /* -(  PhabricatorPolicyInterface  )----------------------------------------- */
 
+
   public function getCapabilities() {
     return $this->getBook()->getCapabilities();
   }
 
-
   public function getPolicy($capability) {
     return $this->getBook()->getPolicy($capability);
   }
-
 
   public function hasAutomaticCapability($capability, PhabricatorUser $viewer) {
     return $this->getBook()->hasAutomaticCapability($capability, $viewer);
@@ -147,34 +221,51 @@ final class DivinerLiveSymbol extends DivinerDAO
   }
 
 
-/* -(  Markup Interface  )--------------------------------------------------- */
+/* -( PhabricatorMarkupInterface  )------------------------------------------ */
 
 
   public function getMarkupFieldKey($field) {
     return $this->getPHID().':'.$field.':'.$this->getGraphHash();
   }
 
-
   public function newMarkupEngine($field) {
     return PhabricatorMarkupEngine::getEngine('diviner');
   }
 
-
   public function getMarkupText($field) {
+    if (!$this->getAtom()) {
+      return;
+    }
+
     return $this->getAtom()->getDocblockText();
   }
 
-
-  public function didMarkupText(
-    $field,
-    $output,
-    PhutilMarkupEngine $engine) {
+  public function didMarkupText($field, $output, PhutilMarkupEngine $engine) {
     return $output;
   }
 
-
   public function shouldUseMarkupCache($field) {
-    return false;
+    return true;
+  }
+
+
+/* -(  PhabricatorDestructibleInterface  )----------------------------------- */
+
+
+  public function destroyObjectPermanently(
+    PhabricatorDestructionEngine $engine) {
+
+    $this->openTransaction();
+      $conn_w = $this->establishConnection('w');
+
+      queryfx(
+        $conn_w,
+        'DELETE FROM %T WHERE symbolPHID = %s',
+        id(new DivinerLiveAtom())->getTableName(),
+        $this->getPHID());
+
+      $this->delete();
+    $this->saveTransaction();
   }
 
 }

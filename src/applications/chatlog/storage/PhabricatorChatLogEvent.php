@@ -11,6 +11,37 @@ final class PhabricatorChatLogEvent
   protected $message;
   protected $loggedByPHID;
 
+  private $channel = self::ATTACHABLE;
+
+  protected function getConfiguration() {
+    return array(
+      self::CONFIG_TIMESTAMPS => false,
+      self::CONFIG_COLUMN_SCHEMA => array(
+        'author' => 'text64',
+        'type' => 'text4',
+        'message' => 'text',
+      ),
+      self::CONFIG_KEY_SCHEMA => array(
+        'channel' => array(
+          'columns' => array('epoch'),
+        ),
+      ),
+    ) + parent::getConfiguration();
+  }
+
+  public function attachChannel(PhabricatorChatLogChannel $channel) {
+    $this->channel = $channel;
+    return $this;
+  }
+
+  public function getChannel() {
+    return $this->assertAttached($this->channel);
+  }
+
+
+/* -(  PhabricatorPolicyInterface  )----------------------------------------- */
+
+
   public function getCapabilities() {
     return array(
       PhabricatorPolicyCapability::CAN_VIEW,
@@ -18,24 +49,15 @@ final class PhabricatorChatLogEvent
   }
 
   public function getPolicy($capability) {
-    // TODO: This is sort of silly and mostly just so that we can use
-    // CursorPagedPolicyAwareQuery; once we implement Channel objects we should
-    // just delegate policy to them.
-    return PhabricatorPolicies::POLICY_PUBLIC;
+    return $this->getChannel()->getPolicy($capability);
   }
 
   public function hasAutomaticCapability($capability, PhabricatorUser $viewer) {
-    return false;
+    return $this->getChannel()->hasAutomaticCapability($capability, $viewer);
   }
 
   public function describeAutomaticCapability($capability) {
     return null;
-  }
-
-  public function getConfiguration() {
-    return array(
-      self::CONFIG_TIMESTAMPS => false,
-    ) + parent::getConfiguration();
   }
 
 }

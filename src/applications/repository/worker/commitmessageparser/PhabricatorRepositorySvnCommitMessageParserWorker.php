@@ -3,19 +3,15 @@
 final class PhabricatorRepositorySvnCommitMessageParserWorker
   extends PhabricatorRepositoryCommitMessageParserWorker {
 
-  public function parseCommit(
+  protected function parseCommitWithRef(
     PhabricatorRepository $repository,
-    PhabricatorRepositoryCommit $commit) {
-
-    $ref = id(new DiffusionLowLevelCommitQuery())
-      ->setRepository($repository)
-      ->withIdentifier($commit->getCommitIdentifier())
-      ->execute();
+    PhabricatorRepositoryCommit $commit,
+    DiffusionCommitRef $ref) {
 
     $this->updateCommitData($ref);
 
     if ($this->shouldQueueFollowupTasks()) {
-      PhabricatorWorker::scheduleTask(
+      $this->queueTask(
         'PhabricatorRepositorySvnCommitChangeParserWorker',
         array(
           'commitID' => $commit->getID(),

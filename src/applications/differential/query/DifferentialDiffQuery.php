@@ -7,7 +7,6 @@ final class DifferentialDiffQuery
   private $phids;
   private $revisionIDs;
   private $needChangesets = false;
-  private $needArcanistProjects = false;
 
   public function withIDs(array $ids) {
     $this->ids = $ids;
@@ -29,12 +28,7 @@ final class DifferentialDiffQuery
     return $this;
   }
 
-  public function needArcanistProjects($bool) {
-    $this->needArcanistProjects = $bool;
-    return $this;
-  }
-
-  public function loadPage() {
+  protected function loadPage() {
     $table = new DifferentialDiff();
     $conn_r = $table->establishConnection('r');
 
@@ -49,7 +43,7 @@ final class DifferentialDiffQuery
     return $table->loadAllFromArray($data);
   }
 
-  public function willFilterPage(array $diffs) {
+  protected function willFilterPage(array $diffs) {
     $revision_ids = array_filter(mpull($diffs, 'getRevisionID'));
 
     $revisions = array();
@@ -62,7 +56,6 @@ final class DifferentialDiffQuery
 
     foreach ($diffs as $key => $diff) {
       if (!$diff->getRevisionID()) {
-        $diff->attachRevision(null);
         continue;
       }
 
@@ -76,53 +69,26 @@ final class DifferentialDiffQuery
     }
 
 
-    if ($this->needChangesets) {
-      $this->loadChangesets($diffs);
-    }
-
-    if ($this->needArcanistProjects) {
-      $this->loadArcanistProjects($diffs);
+    if ($diffs && $this->needChangesets) {
+      $diffs = $this->loadChangesets($diffs);
     }
 
     return $diffs;
   }
 
   private function loadChangesets(array $diffs) {
-    foreach ($diffs as $diff) {
-      $diff->attachChangesets(
-        $diff->loadRelatives(new DifferentialChangeset(), 'diffID'));
-      foreach ($diff->getChangesets() as $changeset) {
-        $changeset->attachHunks(
-          $changeset->loadRelatives(new DifferentialHunk(), 'changesetID'));
-      }
-    }
-    return $diffs;
-  }
-
-  private function loadArcanistProjects(array $diffs) {
-    $phids = array_filter(mpull($diffs, 'getArcanistProjectPHID'));
-    $projects = array();
-    $project_map = array();
-    if ($phids) {
-      $projects = id(new PhabricatorRepositoryArcanistProject())
-        ->loadAllWhere(
-          'phid IN (%Ls)',
-          $phids);
-      $project_map = mpull($projects, null, 'getPHID');
-    }
-
-    foreach ($diffs as $diff) {
-      $project = null;
-      if ($diff->getArcanistProjectPHID()) {
-        $project = idx($project_map, $diff->getArcanistProjectPHID());
-      }
-      $diff->attachArcanistProject($project);
-    }
+    id(new DifferentialChangesetQuery())
+      ->setViewer($this->getViewer())
+      ->setParentQuery($this)
+      ->withDiffs($diffs)
+      ->needAttachToDiffs(true)
+      ->needHunks(true)
+      ->execute();
 
     return $diffs;
   }
 
-  private function buildWhereClause(AphrontDatabaseConnection $conn_r) {
+  protected function buildWhereClause(AphrontDatabaseConnection $conn_r) {
     $where = array();
 
     if ($this->ids) {
@@ -151,7 +117,7 @@ final class DifferentialDiffQuery
   }
 
   public function getQueryApplicationClass() {
-    return 'PhabricatorApplicationDifferential';
+    return 'PhabricatorDifferentialApplication';
   }
 
 }

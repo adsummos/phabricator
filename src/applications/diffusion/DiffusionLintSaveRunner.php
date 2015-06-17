@@ -1,6 +1,6 @@
 <?php
 
-final class DiffusionLintSaveRunner {
+final class DiffusionLintSaveRunner extends Phobject {
   private $arc = 'arc';
   private $severity = ArcanistLintSeverity::SEVERITY_ADVICE;
   private $all = false;
@@ -44,7 +44,10 @@ final class DiffusionLintSaveRunner {
 
   public function run($dir) {
     $working_copy = ArcanistWorkingCopyIdentity::newFromPath($dir);
-    $api = ArcanistRepositoryAPI::newAPIFromWorkingCopyIdentity($working_copy);
+    $configuration_manager = new ArcanistConfigurationManager();
+    $configuration_manager->setWorkingCopyIdentity($working_copy);
+    $api = ArcanistRepositoryAPI::newAPIFromConfigurationManager(
+      $configuration_manager);
 
     $this->svnRoot = id(new PhutilURI($api->getSourceControlPath()))->getPath();
     if ($api instanceof ArcanistGitAPI) {
@@ -55,28 +58,36 @@ final class DiffusionLintSaveRunner {
       }
     }
 
-    $project_id = $working_copy->getProjectID();
-    $project = id(new PhabricatorRepositoryArcanistProject())
-      ->loadOneWhere('name = %s', $project_id);
-    if (!$project || !$project->getRepositoryID()) {
-      throw new Exception("Couldn't find repository for {$project_id}.");
+    $callsign = $configuration_manager->getConfigFromAnySource(
+      'repository.callsign');
+    $uuid = $api->getRepositoryUUID();
+    $remote_uri = $api->getRemoteURI();
+
+    $repository_query = id(new PhabricatorRepositoryQuery())
+      ->setViewer(PhabricatorUser::getOmnipotentUser());
+
+    if ($callsign) {
+      $repository_query->withCallsigns(array($callsign));
+    } else if ($uuid) {
+      $repository_query->withUUIDs(array($uuid));
+    } else if ($remote_uri) {
+      $repository_query->withRemoteURIs(array($remote_uri));
     }
 
+    $repository = $repository_query->executeOne();
     $branch_name = $api->getBranchName();
-    $this->branch = new PhabricatorRepositoryBranch();
-    $this->conn = $this->branch->establishConnection('w');
-    $this->branch = $this->branch->loadOneWhere(
-      'repositoryID = %d AND name = %s',
-      $project->getRepositoryID(),
+
+    if (!$repository) {
+      throw new Exception(pht('No repository was found.'));
+    }
+
+    $this->branch = PhabricatorRepositoryBranch::loadOrCreateBranch(
+      $repository->getID(),
       $branch_name);
+    $this->conn = $this->branch->establishConnection('w');
 
     $this->lintCommit = null;
-    if (!$this->branch) {
-      $this->branch = id(new PhabricatorRepositoryBranch())
-        ->setRepositoryID($project->getRepositoryID())
-        ->setName($branch_name)
-        ->save();
-    } else if (!$this->all) {
+    if (!$this->all) {
       $this->lintCommit = $this->branch->getLintCommit();
     }
 
@@ -91,6 +102,7 @@ final class DiffusionLintSaveRunner {
         $this->lintCommit = null;
       }
     }
+
 
     if (!$this->lintCommit) {
       $where = ($this->svnRoot
@@ -156,9 +168,11 @@ final class DiffusionLintSaveRunner {
         $files);
 
       foreach (new LinesOfALargeExecFuture($future) as $json) {
-        $paths = json_decode($json, true);
-        if (!is_array($paths)) {
-          fprintf(STDERR, "Invalid JSON: {$json}\n");
+        $paths = null;
+        try {
+          $paths = phutil_json_decode($json);
+        } catch (PhutilJSONParserException $ex) {
+          fprintf(STDERR, pht('Invalid JSON: %s', $json)."\n");
           continue;
         }
 
@@ -238,7 +252,6 @@ final class DiffusionLintSaveRunner {
     foreach ($this->blame as $path => $lines) {
       $drequest = DiffusionRequest::newFromDictionary(array(
         'user' => PhabricatorUser::getOmnipotentUser(),
-        'initFromConduit' => false,
         'repository' => $repository,
         'branch' => $this->branch->getName(),
         'path' => $path,
@@ -252,7 +265,9 @@ final class DiffusionLintSaveRunner {
 
     $authors = array();
 
-    foreach (Futures($futures)->limit(8) as $path => $future) {
+    $futures = id(new FutureIterator($futures))
+      ->limit(8);
+    foreach ($futures as $path => $future) {
       $queries[$path]->loadFileContentFromFuture($future);
       list(, $rev_list, $blame_dict) = $queries[$path]->getBlameData();
       foreach (array_keys($this->blame[$path]) as $line) {

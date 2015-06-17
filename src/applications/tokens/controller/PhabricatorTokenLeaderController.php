@@ -1,7 +1,11 @@
 <?php
 
 final class PhabricatorTokenLeaderController
-    extends PhabricatorTokenController {
+  extends PhabricatorTokenController {
+
+  public function shouldAllowPublic() {
+    return true;
+  }
 
   public function processRequest() {
     $request = $this->getRequest();
@@ -26,6 +30,7 @@ final class PhabricatorTokenLeaderController
     }
 
     $list = new PHUIObjectItemListView();
+    $list->setStackable(true);
     foreach ($phids as $object) {
       $count = idx($counts, $object, 0);
       $item = id(new PHUIObjectItemView());
@@ -39,20 +44,23 @@ final class PhabricatorTokenLeaderController
 
     $title = pht('Token Leader Board');
 
+    $box = id(new PHUIObjectBoxView())
+      ->setHeaderText($title)
+      ->appendChild($list);
+
     $nav = $this->buildSideNav();
     $nav->setCrumbs(
       $this->buildApplicationCrumbs()
         ->addTextCrumb($title));
     $nav->selectFilter('leaders/');
 
-    $nav->appendChild($list);
+    $nav->appendChild($box);
     $nav->appendChild($pager);
 
     return $this->buildApplicationPage(
       $nav,
       array(
         'title' => $title,
-        'device' => true,
       ));
   }
 

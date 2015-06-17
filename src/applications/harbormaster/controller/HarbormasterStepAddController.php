@@ -1,7 +1,6 @@
 <?php
 
-final class HarbormasterStepAddController
-  extends HarbormasterController {
+final class HarbormasterStepAddController extends HarbormasterController {
 
   private $id;
 
@@ -14,74 +13,54 @@ final class HarbormasterStepAddController
     $viewer = $request->getUser();
 
     $this->requireApplicationCapability(
-      HarbormasterCapabilityManagePlans::CAPABILITY);
-
-    $id = $this->id;
+      HarbormasterManagePlansCapability::CAPABILITY);
 
     $plan = id(new HarbormasterBuildPlanQuery())
-        ->setViewer($viewer)
-        ->withIDs(array($id))
-        ->executeOne();
-    if ($plan === null) {
-      throw new Exception("Build plan not found!");
+      ->setViewer($viewer)
+      ->withIDs(array($this->id))
+      ->executeOne();
+    if (!$plan) {
+      return new Aphront404Response();
     }
 
-    $implementations = BuildStepImplementation::getImplementations();
+    $plan_id = $plan->getID();
+    $cancel_uri = $this->getApplicationURI("plan/{$plan_id}/");
 
-    $cancel_uri = $this->getApplicationURI('plan/'.$plan->getID().'/');
-
-    if ($request->isDialogFormPost()) {
-      $class = $request->getStr('step-type');
-      if (!in_array($class, $implementations)) {
-        return $this->createDialog($implementations, $cancel_uri);
+    $errors = array();
+    if ($request->isFormPost()) {
+      $class = $request->getStr('class');
+      if (!HarbormasterBuildStepImplementation::getImplementation($class)) {
+        $errors[] = pht('Choose the type of build step you want to add.');
       }
-
-      $steps = $plan->loadOrderedBuildSteps();
-
-      $step = new HarbormasterBuildStep();
-      $step->setBuildPlanPHID($plan->getPHID());
-      $step->setClassName($class);
-      $step->setDetails(array());
-      $step->setSequence(count($steps) + 1);
-      $step->save();
-
-      $edit_uri = $this->getApplicationURI("step/edit/".$step->getID()."/");
-
-      return id(new AphrontRedirectResponse())->setURI($edit_uri);
+      if (!$errors) {
+        $new_uri = $this->getApplicationURI("step/new/{$plan_id}/{$class}/");
+        return id(new AphrontRedirectResponse())->setURI($new_uri);
+      }
     }
-
-    return $this->createDialog($implementations, $cancel_uri);
-  }
-
-  function createDialog(array $implementations, $cancel_uri) {
-    $request = $this->getRequest();
-    $viewer = $request->getUser();
 
     $control = id(new AphrontFormRadioButtonControl())
-      ->setName('step-type');
+      ->setName('class');
 
-    foreach ($implementations as $implementation_name) {
-      $implementation = new $implementation_name();
-      $control
-        ->addButton(
-          $implementation_name,
-          $implementation->getName(),
-          $implementation->getGenericDescription());
+    $all = HarbormasterBuildStepImplementation::getImplementations();
+    foreach ($all as $class => $implementation) {
+      $control->addButton(
+        $class,
+        $implementation->getName(),
+        $implementation->getGenericDescription());
     }
 
-    $dialog = new AphrontDialogView();
-    $dialog->setTitle(pht('Add New Step'))
-            ->setUser($viewer)
-            ->addSubmitButton(pht('Add Build Step'))
-            ->addCancelButton($cancel_uri);
-    $dialog->appendChild(
-      phutil_tag(
-        'p',
-        array(),
-        pht(
-          'Select what type of build step you want to add: ')));
-    $dialog->appendChild($control);
-    return id(new AphrontDialogResponse())->setDialog($dialog);
+    if ($errors) {
+      $errors = id(new PHUIInfoView())
+        ->setErrors($errors);
+    }
+
+    return $this->newDialog()
+      ->setTitle(pht('Add New Step'))
+      ->addSubmitButton(pht('Add Build Step'))
+      ->addCancelButton($cancel_uri)
+      ->appendChild($errors)
+      ->appendParagraph(pht('Choose a type of build step to add:'))
+      ->appendChild($control);
   }
 
 }

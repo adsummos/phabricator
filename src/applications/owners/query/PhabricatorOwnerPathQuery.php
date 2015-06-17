@@ -1,6 +1,6 @@
 <?php
 
-final class PhabricatorOwnerPathQuery {
+final class PhabricatorOwnerPathQuery extends Phobject {
 
   public static function loadAffectedPaths(
     PhabricatorRepository $repository,
@@ -20,9 +20,9 @@ final class PhabricatorOwnerPathQuery {
 
     $result = array();
     foreach ($paths as $path) {
-      $basic_path = '/' . $path->getPath();
+      $basic_path = '/'.$path->getPath();
       if ($path->getFileType() == DifferentialChangeType::FILE_DIRECTORY) {
-        $basic_path = rtrim($basic_path, '/') . '/';
+        $basic_path = rtrim($basic_path, '/').'/';
       }
       $result[] = $basic_path;
     }

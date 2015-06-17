@@ -20,7 +20,7 @@ final class DrydockResourceViewController extends DrydockResourceController {
       return new Aphront404Response();
     }
 
-    $title = 'Resource '.$resource->getID().' '.$resource->getName();
+    $title = pht('Resource %s %s', $resource->getID(), $resource->getName());
 
     $header = id(new PHUIHeaderView())
       ->setHeader($title);
@@ -36,7 +36,10 @@ final class DrydockResourceViewController extends DrydockResourceController {
       ->withResourceIDs(array($resource->getID()))
       ->execute();
 
-    $lease_list = $this->buildLeaseListView($leases);
+    $lease_list = id(new DrydockLeaseListView())
+      ->setUser($viewer)
+      ->setLeases($leases)
+      ->render();
     $lease_list->setNoDataString(pht('This resource has no leases.'));
 
     $pager = new AphrontPagerView();
@@ -48,11 +51,13 @@ final class DrydockResourceViewController extends DrydockResourceController {
       ->withResourceIDs(array($resource->getID()))
       ->executeWithOffsetPager($pager);
 
-    $log_table = $this->buildLogTableView($logs);
+    $log_table = id(new DrydockLogListView())
+      ->setUser($viewer)
+      ->setLogs($logs)
+      ->render();
     $log_table->appendChild($pager);
 
     $crumbs = $this->buildApplicationCrumbs();
-    $crumbs->setActionList($actions);
     $crumbs->addTextCrumb(pht('Resource %d', $resource->getID()));
 
     $object_box = id(new PHUIObjectBoxView())
@@ -67,7 +72,6 @@ final class DrydockResourceViewController extends DrydockResourceController {
         $log_table,
       ),
       array(
-        'device'  => true,
         'title'   => $title,
       ));
 
@@ -87,7 +91,7 @@ final class DrydockResourceViewController extends DrydockResourceController {
       id(new PhabricatorActionView())
         ->setHref($uri)
         ->setName(pht('Close Resource'))
-        ->setIcon('delete')
+        ->setIcon('fa-times')
         ->setWorkflow(true)
         ->setDisabled(!$can_close));
 

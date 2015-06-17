@@ -1,21 +1,20 @@
 <?php
 
 final class PhabricatorApplicationDetailViewController
-  extends PhabricatorApplicationsController{
+  extends PhabricatorApplicationsController {
 
-  private $application;
 
-  public function willProcessRequest(array $data) {
-    $this->application = $data['application'];
+  public function shouldAllowPublic() {
+    return true;
   }
 
-  public function processRequest() {
-    $request = $this->getRequest();
-    $user = $request->getUser();
+  public function handleRequest(AphrontRequest $request) {
+    $viewer = $this->getViewer();
+    $application = $request->getURIData('application');
 
     $selected = id(new PhabricatorApplicationQuery())
-      ->setViewer($user)
-      ->withClasses(array($this->application))
+      ->setViewer($viewer)
+      ->withClasses(array($application))
       ->executeOne();
     if (!$selected) {
       return new Aphront404Response();
@@ -28,30 +27,42 @@ final class PhabricatorApplicationDetailViewController
 
     $header = id(new PHUIHeaderView())
       ->setHeader($title)
-      ->setUser($user)
+      ->setUser($viewer)
       ->setPolicyObject($selected);
 
     if ($selected->isInstalled()) {
-      $header->setStatus('oh-ok', null, pht('Installed'));
+      $header->setStatus('fa-check', 'bluegrey', pht('Installed'));
     } else {
-      $header->setStatus('policy-noone', null, pht('Uninstalled'));
+      $header->setStatus('fa-ban', 'dark', pht('Uninstalled'));
     }
 
-    $actions = $this->buildActionView($user, $selected);
+    $actions = $this->buildActionView($viewer, $selected);
     $properties = $this->buildPropertyView($selected, $actions);
 
     $object_box = id(new PHUIObjectBoxView())
       ->setHeader($header)
       ->addPropertyList($properties);
 
+    $configs =
+      PhabricatorApplicationConfigurationPanel::loadAllPanelsForApplication(
+        $selected);
+
+    $panels = array();
+    foreach ($configs as $config) {
+      $config->setViewer($viewer);
+      $config->setApplication($selected);
+
+      $panels[] = $config->buildConfigurationPagePanel();
+    }
+
     return $this->buildApplicationPage(
       array(
         $crumbs,
         $object_box,
+        $panels,
       ),
       array(
         'title' => $title,
-        'device' => true,
       ));
   }
 
@@ -61,14 +72,47 @@ final class PhabricatorApplicationDetailViewController
 
     $viewer = $this->getRequest()->getUser();
 
-    $properties = id(new PHUIPropertyListView())
-      ->addProperty(pht('Description'), $application->getShortDescription());
+    $properties = id(new PHUIPropertyListView());
     $properties->setActionList($actions);
 
-    if ($application->isBeta()) {
+    $properties->addProperty(
+      pht('Description'),
+      $application->getShortDescription());
+
+    if ($application->getFlavorText()) {
       $properties->addProperty(
-        pht('Release'),
-        pht('Beta'));
+        null,
+        phutil_tag('em', array(), $application->getFlavorText()));
+    }
+
+    if ($application->isPrototype()) {
+      $proto_href = PhabricatorEnv::getDoclink(
+        'User Guide: Prototype Applications');
+      $learn_more = phutil_tag(
+        'a',
+        array(
+          'href' => $proto_href,
+          'target' => '_blank',
+        ),
+        pht('Learn More'));
+
+      $properties->addProperty(
+        pht('Prototype'),
+        pht(
+          'This application is a prototype. %s',
+          $learn_more));
+    }
+
+    $overview = $application->getOverview();
+    if ($overview) {
+      $properties->addSectionHeader(
+        pht('Overview'),
+        PHUIPropertyListView::ICON_SUMMARY);
+      $properties->addTextContent(
+        PhabricatorMarkupEngine::renderOneObject(
+          id(new PhabricatorMarkupOneOff())->setContent($overview),
+          'default',
+          $viewer));
     }
 
     $descriptions = PhabricatorPolicyQuery::renderPolicyDescriptions(
@@ -104,7 +148,7 @@ final class PhabricatorApplicationDetailViewController
     $view->addAction(
       id(new PhabricatorActionView())
         ->setName(pht('Edit Policies'))
-        ->setIcon('edit')
+        ->setIcon('fa-pencil')
         ->setDisabled(!$can_edit)
         ->setWorkflow(!$can_edit)
         ->setHref($edit_uri));
@@ -114,7 +158,7 @@ final class PhabricatorApplicationDetailViewController
         $view->addAction(
           id(new PhabricatorActionView())
             ->setName(pht('Uninstall'))
-            ->setIcon('delete')
+            ->setIcon('fa-times')
             ->setDisabled(!$can_edit)
             ->setWorkflow(true)
             ->setHref(
@@ -122,15 +166,15 @@ final class PhabricatorApplicationDetailViewController
       } else {
         $action = id(new PhabricatorActionView())
           ->setName(pht('Install'))
-          ->setIcon('new')
+          ->setIcon('fa-plus')
           ->setDisabled(!$can_edit)
           ->setWorkflow(true)
           ->setHref(
              $this->getApplicationURI(get_class($selected).'/install/'));
 
-        $beta_enabled = PhabricatorEnv::getEnvConfig(
-          'phabricator.show-beta-applications');
-        if ($selected->isBeta() && !$beta_enabled) {
+        $prototypes_enabled = PhabricatorEnv::getEnvConfig(
+          'phabricator.show-prototypes');
+        if ($selected->isPrototype() && !$prototypes_enabled) {
           $action->setDisabled(true);
         }
 
@@ -140,7 +184,7 @@ final class PhabricatorApplicationDetailViewController
       $view->addAction(
         id(new PhabricatorActionView())
           ->setName(pht('Uninstall'))
-          ->setIcon('delete')
+          ->setIcon('fa-times')
           ->setWorkflow(true)
           ->setDisabled(true)
           ->setHref(

@@ -1,28 +1,31 @@
 <?php
 
-/**
- * @group phriction
- */
-final class PhrictionDiffController
-  extends PhrictionController {
+final class PhrictionDiffController extends PhrictionController {
 
   private $id;
+
+  public function shouldAllowPublic() {
+    return true;
+  }
 
   public function willProcessRequest(array $data) {
     $this->id = $data['id'];
   }
 
   public function processRequest() {
-
     $request = $this->getRequest();
     $user = $request->getUser();
 
-    $document = id(new PhrictionDocument())->load($this->id);
+    $document = id(new PhrictionDocumentQuery())
+      ->setViewer($user)
+      ->withIDs(array($this->id))
+      ->needContent(true)
+      ->executeOne();
     if (!$document) {
       return new Aphront404Response();
     }
 
-    $current = id(new PhrictionContent())->load($document->getContentID());
+    $current = $document->getContent();
 
     $l = $request->getInt('l');
     $r = $request->getInt('r');
@@ -56,6 +59,8 @@ final class PhrictionDiffController
     $engine = new PhabricatorDifferenceEngine();
     $changeset = $engine->generateChangesetFromFileContent($text_l, $text_r);
 
+    $changeset->setFilename($content_r->getTitle());
+
     $changeset->setOldProperties(
       array(
         'Title'   => $content_l->getTitle(),
@@ -67,9 +72,12 @@ final class PhrictionDiffController
 
     $whitespace_mode = DifferentialChangesetParser::WHITESPACE_SHOW_ALL;
 
-    $parser = new DifferentialChangesetParser();
-    $parser->setChangeset($changeset);
-    $parser->setRenderingReference("{$l},{$r}");
+    $parser = id(new DifferentialChangesetParser())
+      ->setUser($user)
+      ->setChangeset($changeset)
+      ->setRenderingReference("{$l},{$r}");
+
+    $parser->readParametersFromRequest($request);
     $parser->setWhitespaceMode($whitespace_mode);
 
     $engine = new PhabricatorMarkupEngine();
@@ -80,21 +88,25 @@ final class PhrictionDiffController
     $spec = $request->getStr('range');
     list($range_s, $range_e, $mask) =
       DifferentialChangesetParser::parseRangeSpecification($spec);
-    $output = $parser->render($range_s, $range_e, $mask);
+
+    $parser->setRange($range_s, $range_e);
+    $parser->setMask($mask);
 
     if ($request->isAjax()) {
       return id(new PhabricatorChangesetResponse())
-        ->setRenderedChangeset($output);
+        ->setRenderedChangeset($parser->renderChangeset());
     }
 
-    require_celerity_resource('differential-changeset-view-css');
-    require_celerity_resource('syntax-highlighting-css');
-    require_celerity_resource('phriction-document-css');
+    $changes = id(new DifferentialChangesetListView())
+      ->setUser($this->getViewer())
+      ->setChangesets(array($changeset))
+      ->setVisibleChangesets(array($changeset))
+      ->setRenderingReferences(array("{$l},{$r}"))
+      ->setRenderURI('/phriction/diff/'.$document->getID().'/')
+      ->setTitle(pht('Changes'))
+      ->setParser($parser);
 
-    Javelin::initBehavior('differential-show-more', array(
-      'uri'         => '/phriction/diff/'.$document->getID().'/',
-      'whitespace'  => $whitespace_mode,
-    ));
+    require_celerity_resource('phriction-document-css');
 
     $slug = $document->getSlug();
 
@@ -111,7 +123,7 @@ final class PhrictionDiffController
       pht('History'),
       PhrictionDocument::getSlugURI($slug, 'history'));
 
-    $title = pht("Version %s vs %s", $l, $r);
+    $title = pht('Version %s vs %s', $l, $r);
 
     $header = id(new PHUIHeaderView())
       ->setHeader($title);
@@ -180,18 +192,16 @@ final class PhrictionDiffController
 
 
     $output = hsprintf(
-      '<br><div class="phriction-document-history-diff">'.
+      '<div class="phriction-document-history-diff">'.
         '%s%s'.
         '<table class="phriction-revert-table">'.
           '<tr><td>%s</td><td>%s</td>'.
         '</table>'.
-        '%s'.
       '</div>',
       $comparison_table->render(),
       $navigation_table,
       $revert_l,
-      $revert_r,
-      $output);
+      $revert_r);
 
 
     $object_box = id(new PHUIObjectBoxView())
@@ -202,10 +212,10 @@ final class PhrictionDiffController
       array(
         $crumbs,
         $object_box,
+        $changes,
       ),
       array(
         'title'     => pht('Document History'),
-        'device'    => true,
       ));
 
   }

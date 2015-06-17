@@ -1,8 +1,5 @@
 <?php
 
-/**
- * @group aphront
- */
 final class AphrontAjaxResponse extends AphrontResponse {
 
   private $content;
@@ -47,9 +44,10 @@ final class AphrontAjaxResponse extends AphrontResponse {
       Javelin::initBehavior(
         'dark-console',
         array(
-          'uri'     => (string)$uri,
-          'key'     => $console->getKey($this->getRequest()),
-          'color'   => $console->getColor(),
+          'uri'       => (string)$uri,
+          'key'       => $console->getKey($this->getRequest()),
+          'color'     => $console->getColor(),
+          'quicksand' => $this->getRequest()->isQuicksand(),
         ));
     }
 

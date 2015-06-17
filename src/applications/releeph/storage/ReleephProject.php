@@ -1,19 +1,17 @@
 <?php
 
 final class ReleephProject extends ReleephDAO
-  implements PhabricatorPolicyInterface {
+  implements
+    PhabricatorApplicationTransactionInterface,
+    PhabricatorPolicyInterface {
 
   const DEFAULT_BRANCH_NAMESPACE = 'releeph-releases';
   const SYSTEM_AGENT_USERNAME_PREFIX = 'releeph-agent-';
 
-  const COMMIT_AUTHOR_NONE      = 'commit-author-none';
-  const COMMIT_AUTHOR_FROM_DIFF = 'commit-author-is-from-diff';
-  const COMMIT_AUTHOR_REQUESTOR = 'commit-author-is-requestor';
-
   protected $name;
 
   // Specifying the place to pick from is a requirement for svn, though not
-  // for git.  It's always useful though for reasoning about what revs have
+  // for git. It's always useful though for reasoning about what revs have
   // been picked and which haven't.
   protected $trunkBranch;
 
@@ -26,17 +24,29 @@ final class ReleephProject extends ReleephDAO
 
   private $repository = self::ATTACHABLE;
 
-  public function getConfiguration() {
+  protected function getConfiguration() {
     return array(
       self::CONFIG_AUX_PHID => true,
       self::CONFIG_SERIALIZATION => array(
         'details' => self::SERIALIZATION_JSON,
       ),
+      self::CONFIG_COLUMN_SCHEMA => array(
+        'name' => 'text128',
+        'trunkBranch' => 'text255',
+        'isActive' => 'bool',
+        'arcanistProjectID' => 'id?',
+      ),
+      self::CONFIG_KEY_SCHEMA => array(
+        'projectName' => array(
+          'columns' => array('name'),
+          'unique' => true,
+        ),
+      ),
     ) + parent::getConfiguration();
   }
 
   public function generatePHID() {
-    return PhabricatorPHID::generateNewPHID(ReleephPHIDTypeProject::TYPECONST);
+    return PhabricatorPHID::generateNewPHID(ReleephProductPHIDType::TYPECONST);
   }
 
   public function getDetail($key, $default = null) {
@@ -45,9 +55,9 @@ final class ReleephProject extends ReleephDAO
 
   public function getURI($path = null) {
     $components = array(
-      '/releeph/project',
+      '/releeph/product',
       $this->getID(),
-      $path
+      $path,
     );
     return implode('/', $components);
   }
@@ -55,30 +65,6 @@ final class ReleephProject extends ReleephDAO
   public function setDetail($key, $value) {
     $this->details[$key] = $value;
     return $this;
-  }
-
-  public function willSaveObject() {
-    // Do this first, to generate the PHID
-    parent::willSaveObject();
-
-    $banned_names = $this->getBannedNames();
-    if (in_array($this->name, $banned_names)) {
-      throw new Exception(sprintf(
-        "The name '%s' is in the list of banned project names!",
-        $this->name,
-        implode(', ', $banned_names)));
-    }
-
-    if (!$this->getDetail('releaseCounter')) {
-      $this->setDetail('releaseCounter', 0);
-    }
-  }
-
-  public function loadArcanistProject() {
-    return $this->loadOneRelative(
-      new PhabricatorRepositoryArcanistProject(),
-      'id',
-      'getArcanistProjectID');
   }
 
   public function getPushers() {
@@ -112,56 +98,8 @@ final class ReleephProject extends ReleephDAO
     return $this->assertAttached($this->repository);
   }
 
-  // TODO: Remove once everything uses ProjectQuery. Also, T603.
-  public function loadPhabricatorRepository() {
-    return $this->loadOneRelative(
-      new PhabricatorRepository(),
-      'phid',
-      'getRepositoryPHID');
-  }
-
-  public function getCurrentReleaseNumber() {
-    $current_release_numbers = array();
-
-    // From the project...
-    $current_release_numbers[] = $this->getDetail('releaseCounter', 0);
-
-    // From any branches...
-    $branches = id(new ReleephBranch())->loadAllWhere(
-      'releephProjectID = %d', $this->getID());
-    if ($branches) {
-      $release_numbers = array();
-      foreach ($branches as $branch) {
-        $current_release_numbers[] = $branch->getDetail('releaseNumber', 0);
-      }
-    }
-
-    return max($current_release_numbers);
-  }
-
   public function getReleephFieldSelector() {
     return new ReleephDefaultFieldSelector();
-  }
-
-  /**
-   * Wrapper to setIsActive() that logs who deactivated a project
-   */
-  public function deactivate(PhabricatorUser $actor) {
-    return $this
-      ->setIsActive(0)
-      ->setDetail('last_deactivated_user', $actor->getPHID())
-      ->setDetail('last_deactivated_time', time());
-  }
-
-  // Hide this from the public
-  private function setIsActive($v) {
-    return parent::setIsActive($v);
-  }
-
-  private function getBannedNames() {
-    return array(
-      'branch', // no one's tried this... yet!
-    );
   }
 
   public function isTestFile($filename) {
@@ -175,7 +113,32 @@ final class ReleephProject extends ReleephDAO
     return false;
   }
 
+
+/* -(  PhabricatorApplicationTransactionInterface  )------------------------- */
+
+
+  public function getApplicationTransactionEditor() {
+    return new ReleephProductEditor();
+  }
+
+  public function getApplicationTransactionObject() {
+    return $this;
+  }
+
+  public function getApplicationTransactionTemplate() {
+    return new ReleephProductTransaction();
+  }
+
+  public function willRenderTimeline(
+    PhabricatorApplicationTransactionView $timeline,
+    AphrontRequest $request) {
+
+    return $timeline;
+  }
+
+
 /* -(  PhabricatorPolicyInterface  )----------------------------------------- */
+
 
   public function getCapabilities() {
     return array(

@@ -5,6 +5,7 @@ final class PhabricatorRepositoryRefCursorQuery
 
   private $repositoryPHIDs;
   private $refTypes;
+  private $refNames;
 
   public function withRepositoryPHIDs(array $phids) {
     $this->repositoryPHIDs = $phids;
@@ -13,6 +14,11 @@ final class PhabricatorRepositoryRefCursorQuery
 
   public function withRefTypes(array $types) {
     $this->refTypes = $types;
+    return $this;
+  }
+
+  public function withRefNames(array $names) {
+    $this->refNames = $names;
     return $this;
   }
 
@@ -31,7 +37,7 @@ final class PhabricatorRepositoryRefCursorQuery
     return $table->loadAllFromArray($data);
   }
 
-  public function willFilterPage(array $refs) {
+  protected function willFilterPage(array $refs) {
     $repository_phids = mpull($refs, 'getRepositoryPHID');
 
     $repositories = id(new PhabricatorRepositoryQuery())
@@ -53,21 +59,33 @@ final class PhabricatorRepositoryRefCursorQuery
     return $refs;
   }
 
-  private function buildWhereClause(AphrontDatabaseConnection $conn_r) {
+  protected function buildWhereClause(AphrontDatabaseConnection $conn_r) {
     $where = array();
 
-    if ($this->repositoryPHIDs) {
+    if ($this->repositoryPHIDs !== null) {
       $where[] = qsprintf(
         $conn_r,
         'repositoryPHID IN (%Ls)',
         $this->repositoryPHIDs);
     }
 
-    if ($this->refTypes) {
+    if ($this->refTypes !== null) {
       $where[] = qsprintf(
         $conn_r,
         'refType IN (%Ls)',
         $this->refTypes);
+    }
+
+    if ($this->refNames !== null) {
+      $name_hashes = array();
+      foreach ($this->refNames as $name) {
+        $name_hashes[] = PhabricatorHash::digestForIndex($name);
+      }
+
+      $where[] = qsprintf(
+        $conn_r,
+        'refNameHash IN (%Ls)',
+        $name_hashes);
     }
 
     $where[] = $this->buildPagingClause($conn_r);
@@ -75,9 +93,8 @@ final class PhabricatorRepositoryRefCursorQuery
     return $this->formatWhereClause($where);
   }
 
-
   public function getQueryApplicationClass() {
-    return 'PhabricatorApplicationDiffusion';
+    return 'PhabricatorDiffusionApplication';
   }
 
 }

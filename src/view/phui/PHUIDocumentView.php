@@ -5,6 +5,7 @@ final class PHUIDocumentView extends AphrontTagView {
   /* For mobile displays, where do you want the sidebar */
   const NAV_BOTTOM = 'nav_bottom';
   const NAV_TOP = 'nav_top';
+  const FONT_SOURCE_SANS = 'source-sans';
 
   private $offset;
   private $header;
@@ -14,6 +15,8 @@ final class PHUIDocumentView extends AphrontTagView {
   private $bookname;
   private $bookdescription;
   private $mobileview;
+  private $fontKit;
+  private $fluid;
 
   public function setOffset($offset) {
     $this->offset = $offset;
@@ -21,7 +24,7 @@ final class PHUIDocumentView extends AphrontTagView {
   }
 
   public function setHeader(PHUIHeaderView $header) {
-    $header->setGradient(PhabricatorActionHeaderView::HEADER_LIGHTBLUE);
+    $header->setHeaderColor(PHUIActionHeaderView::HEADER_LIGHTBLUE);
     $this->header = $header;
     return $this;
   }
@@ -50,20 +53,43 @@ final class PHUIDocumentView extends AphrontTagView {
     return $this;
   }
 
-  public function getTagAttributes() {
+  public function setFontKit($kit) {
+    $this->fontKit = $kit;
+    return $this;
+  }
+
+  public function setFluid($fluid) {
+    $this->fluid = $fluid;
+    return $this;
+  }
+
+  protected function getTagAttributes() {
     $classes = array();
 
     if ($this->offset) {
       $classes[] = 'phui-document-offset';
-    };
+    }
+
+    if ($this->fluid) {
+      $classes[] = 'phui-document-fluid';
+    }
 
     return array(
       'class' => $classes,
     );
   }
 
-  public function getTagContent() {
+  protected function getTagContent() {
     require_celerity_resource('phui-document-view-css');
+    if ($this->fontKit) {
+      require_celerity_resource('phui-fontkit-css');
+    }
+
+    switch ($this->fontKit) {
+      case self::FONT_SOURCE_SANS:
+        require_celerity_resource('font-source-sans-pro');
+        break;
+    }
 
     $classes = array();
     $classes[] = 'phui-document-view';
@@ -79,7 +105,7 @@ final class PHUIDocumentView extends AphrontTagView {
       $sidenav = phutil_tag(
         'div',
         array(
-          'class' => 'phui-document-sidenav'
+          'class' => 'phui-document-sidenav',
         ),
         $this->sidenav);
     }
@@ -89,7 +115,7 @@ final class PHUIDocumentView extends AphrontTagView {
       $book = phutil_tag(
         'div',
         array(
-          'class' => 'phui-document-bookname grouped'
+          'class' => 'phui-document-bookname grouped',
         ),
         array(
           phutil_tag(
@@ -99,7 +125,8 @@ final class PHUIDocumentView extends AphrontTagView {
           phutil_tag(
             'span',
             array('class' => 'bookdescription'),
-          $this->bookdescription)));
+          $this->bookdescription),
+        ));
     }
 
     $topnav = null;
@@ -107,7 +134,7 @@ final class PHUIDocumentView extends AphrontTagView {
       $topnav = phutil_tag(
         'div',
         array(
-          'class' => 'phui-document-topnav'
+          'class' => 'phui-document-topnav',
         ),
         $this->topnav);
     }
@@ -117,9 +144,20 @@ final class PHUIDocumentView extends AphrontTagView {
       $crumbs = phutil_tag(
         'div',
         array(
-          'class' => 'phui-document-crumbs'
+          'class' => 'phui-document-crumbs',
         ),
         $this->bookName);
+    }
+
+    if ($this->fontKit) {
+      $main_content = phutil_tag(
+        'div',
+        array(
+          'class' => 'phui-font-'.$this->fontKit,
+        ),
+        $this->renderChildren());
+    } else {
+      $main_content = $this->renderChildren();
     }
 
     $content_inner = phutil_tag(
@@ -131,8 +169,8 @@ final class PHUIDocumentView extends AphrontTagView {
           $book,
           $this->header,
           $topnav,
-          $this->renderChildren(),
-          $crumbs
+          $main_content,
+          $crumbs,
         ));
 
     if ($this->mobileview == self::NAV_BOTTOM) {

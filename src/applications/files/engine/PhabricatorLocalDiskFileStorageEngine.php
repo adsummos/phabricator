@@ -4,24 +4,33 @@
  * Local disk storage engine. Keeps files on local disk. This engine is easy
  * to set up, but it doesn't work if you have multiple web frontends!
  *
- * @task impl     Implementation
  * @task internal Internals
- * @group filestorage
  */
 final class PhabricatorLocalDiskFileStorageEngine
   extends PhabricatorFileStorageEngine {
 
 
-/* -(  Implementation  )----------------------------------------------------- */
+/* -(  Engine Metadata  )---------------------------------------------------- */
 
 
   /**
    * This engine identifies as "local-disk".
-   * @task impl
    */
   public function getEngineIdentifier() {
     return 'local-disk';
   }
+
+  public function getEnginePriority() {
+    return 5;
+  }
+
+  public function canWriteFiles() {
+    $path = PhabricatorEnv::getEnvConfig('storage.local-disk.path');
+    return (bool)strlen($path);
+  }
+
+
+/* -(  Managing File Data  )------------------------------------------------- */
 
 
   /**
@@ -30,7 +39,6 @@ final class PhabricatorLocalDiskFileStorageEngine
    * @task impl
    */
   public function writeFile($data, array $params) {
-
     $root = $this->getLocalDiskFileStorageRoot();
 
     // Generate a random, unique file path like "ab/29/1f918a9ac39201ff". We
@@ -94,8 +102,10 @@ final class PhabricatorLocalDiskFileStorageEngine
 
     if (!$root || $root == '/' || $root[0] != '/') {
       throw new PhabricatorFileStorageConfigurationException(
-        "Malformed local disk storage root. You must provide an absolute ".
-        "path, and can not use '/' as the root.");
+        pht(
+          "Malformed local disk storage root. You must provide an absolute ".
+          "path, and can not use '%s' as the root.",
+          '/'));
     }
 
     return rtrim($root, '/');
@@ -113,9 +123,11 @@ final class PhabricatorLocalDiskFileStorageEngine
     // Make sure there's no funny business going on here. Users normally have
     // no ability to affect the content of handles, but double-check that
     // we're only accessing local storage just in case.
-    if (!preg_match('@^[a-f0-9]{2}/[a-f0-9]{2}/[a-f0-9]{28}$@', $handle)) {
+    if (!preg_match('@^[a-f0-9]{2}/[a-f0-9]{2}/[a-f0-9]{28}\z@', $handle)) {
       throw new Exception(
-        "Local disk filesystem handle '{$handle}' is malformed!");
+        pht(
+          "Local disk filesystem handle '%s' is malformed!",
+          $handle));
     }
     $root = $this->getLocalDiskFileStorageRoot();
     return $root.'/'.$handle;

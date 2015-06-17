@@ -3,17 +3,26 @@
 final class PhrictionSearchEngine
   extends PhabricatorApplicationSearchEngine {
 
+  public function getResultTypeDescription() {
+    return pht('Wiki Documents');
+  }
+
+  public function getApplicationClassName() {
+    return 'PhabricatorPhrictionApplication';
+  }
+
   public function buildSavedQueryFromRequest(AphrontRequest $request) {
     $saved = new PhabricatorSavedQuery();
 
-    $saved->setParameter('status', $request->getArr('status'));
-    $saved->setParameter('order', $request->getArr('order'));
+    $saved->setParameter('status', $request->getStr('status'));
+    $saved->setParameter('order', $request->getStr('order'));
 
     return $saved;
   }
 
   public function buildQueryFromSavedQuery(PhabricatorSavedQuery $saved) {
     $query = id(new PhrictionDocumentQuery())
+      ->needContent(true)
       ->withStatus(PhrictionDocumentQuery::STATUS_NONSTUB);
 
     $status = $saved->getParameter('status');
@@ -54,7 +63,7 @@ final class PhrictionSearchEngine
     return '/phriction/'.$path;
   }
 
-  public function getBuiltinQueryNames() {
+  protected function getBuiltinQueryNames() {
     $names = array(
       'active' => pht('Active'),
       'updated' => pht('Updated'),
@@ -107,6 +116,69 @@ final class PhrictionSearchEngine
       'created' => PhrictionDocumentQuery::ORDER_CREATED,
       'updated' => PhrictionDocumentQuery::ORDER_UPDATED,
     );
+  }
+
+  protected function getRequiredHandlePHIDsForResultList(
+    array $documents,
+    PhabricatorSavedQuery $query) {
+
+    $phids = array();
+    foreach ($documents as $document) {
+      $content = $document->getContent();
+      $phids[] = $content->getAuthorPHID();
+    }
+
+    return $phids;
+  }
+
+
+  protected function renderResultList(
+    array $documents,
+    PhabricatorSavedQuery $query,
+    array $handles) {
+    assert_instances_of($documents, 'PhrictionDocument');
+
+    $viewer = $this->requireViewer();
+
+    $list = new PHUIObjectItemListView();
+    $list->setUser($viewer);
+    foreach ($documents as $document) {
+      $content = $document->getContent();
+      $slug = $document->getSlug();
+      $author_phid = $content->getAuthorPHID();
+      $slug_uri = PhrictionDocument::getSlugURI($slug);
+
+      $byline = pht(
+        'Edited by %s',
+        $handles[$author_phid]->renderLink());
+
+      $updated = phabricator_datetime(
+        $content->getDateCreated(),
+        $viewer);
+
+      $item = id(new PHUIObjectItemView())
+        ->setHeader($content->getTitle())
+        ->setHref($slug_uri)
+        ->addByline($byline)
+        ->addIcon('none', $updated);
+
+      $item->addAttribute($slug_uri);
+
+      switch ($document->getStatus()) {
+        case PhrictionDocumentStatus::STATUS_DELETED:
+          $item->setDisabled(true);
+          $item->addIcon('delete', pht('Deleted'));
+          break;
+        case PhrictionDocumentStatus::STATUS_MOVED:
+          $item->setDisabled(true);
+          $item->addIcon('arrow-right', pht('Moved Away'));
+          break;
+      }
+
+      $list->addItem($item);
+    }
+
+    return $list;
   }
 
 }

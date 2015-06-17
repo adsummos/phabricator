@@ -1,27 +1,23 @@
 <?php
 
-final class PhabricatorJumpNavHandler {
+final class PhabricatorJumpNavHandler extends Phobject {
 
   public static function getJumpResponse(PhabricatorUser $viewer, $jump) {
     $jump = trim($jump);
-    $help_href = PhabricatorEnv::getDocLink('article/Jump_Nav_User_Guide.html');
 
     $patterns = array(
-      '/^help/i'                  => 'uri:'.$help_href,
-      '/^a$/i'                    => 'uri:/audit/',
-      '/^f$/i'                    => 'uri:/feed/',
-      '/^d$/i'                    => 'uri:/differential/',
-      '/^r$/i'                    => 'uri:/diffusion/',
-      '/^t$/i'                    => 'uri:/maniphest/',
-      '/^p$/i'                    => 'uri:/project/',
-      '/^u$/i'                    => 'uri:/people/',
-      '/^p\s+(.+)$/i'             => 'project',
-      '/^#(.+)$/i'                => 'project',
-      '/^u\s+(\S+)$/i'            => 'user',
-      '/^@(.+)$/i'                => 'user',
-      '/^task:\s*(.+)/i'          => 'create-task',
-      '/^(?:s|symbol)\s+(\S+)/i'  => 'find-symbol',
-      '/^r\s+(.+)$/i'             => 'find-repository',
+      '/^a$/i' => 'uri:/audit/',
+      '/^f$/i' => 'uri:/feed/',
+      '/^d$/i' => 'uri:/differential/',
+      '/^r$/i' => 'uri:/diffusion/',
+      '/^t$/i' => 'uri:/maniphest/',
+      '/^p$/i' => 'uri:/project/',
+      '/^u$/i' => 'uri:/people/',
+      '/^p\s+(.+)$/i' => 'project',
+      '/^u\s+(\S+)$/i' => 'user',
+      '/^task:\s*(.+)/i' => 'create-task',
+      '/^(?:s)\s+(\S+)/i' => 'find-symbol',
+      '/^r\s+(.+)$/i' => 'find-repository',
     );
 
     foreach ($patterns as $pattern => $effect) {
@@ -73,7 +69,7 @@ final class PhabricatorJumpNavHandler {
                 ->setURI('/maniphest/task/create/?title='
                   .phutil_escape_uri($matches[1]));
             default:
-              throw new Exception("Unknown jump effect '{$effect}'!");
+              throw new Exception(pht("Unknown jump effect '%s'!", $effect));
           }
         }
       }

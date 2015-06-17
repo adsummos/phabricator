@@ -1,9 +1,6 @@
 <?php
 
-/**
- * @group markup
- */
-final class PhabricatorSyntaxHighlighter {
+final class PhabricatorSyntaxHighlighter extends Phobject {
 
   public static function newEngine() {
     $engine = PhabricatorEnv::newObjectFromConfig('syntax-highlighter.engine');
@@ -30,6 +27,5 @@ final class PhabricatorSyntaxHighlighter {
     $engine = self::newEngine();
     return $engine->highlightSource($language, $source);
   }
-
 
 }

@@ -36,7 +36,7 @@ final class AphrontHTTPSinkTestCase extends PhabricatorTestCase {
   public function testHTTPSinkResponseSplitting() {
     $input = $this->tryTestCaseMap(
       array(
-        "test"      => true,
+        'test'      => true,
         "test\nx"   => false,
         "test\rx"   => false,
         "test\0x"   => false,
@@ -75,7 +75,9 @@ final class AphrontHTTPSinkTestCase extends PhabricatorTestCase {
     $this->assertEqual(
       'for (;;);{"x":"\u003ciframe\u003e"}',
       $sink->getEmittedData(),
-      "JSONResponse should prevent content-sniffing attacks.");
+      pht(
+        '%s should prevent content-sniffing attacks.',
+        'JSONResponse'));
   }
 
 

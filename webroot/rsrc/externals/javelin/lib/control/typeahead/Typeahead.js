@@ -32,7 +32,6 @@
  * @task start        Activating a Typeahead
  * @task control      Controlling Typeaheads from Javascript
  * @task internal     Internal Methods
- * @group control
  */
 JX.install('Typeahead', {
   /**
@@ -124,6 +123,7 @@ JX.install('Typeahead', {
     _datasource : null,
     _waitingListener : null,
     _readyListener : null,
+    _completeListener : null,
 
     /**
      * Activate your properly configured typeahead. It won't do anything until
@@ -137,9 +137,9 @@ JX.install('Typeahead', {
       if (__DEV__) {
         if (!this._datasource) {
           throw new Error(
-            "JX.Typeahead.start(): " +
-            "No datasource configured. Create a datasource and call " +
-            "setDatasource().");
+            'JX.Typeahead.start(): ' +
+            'No datasource configured. Create a datasource and call ' +
+            'setDatasource().');
         }
       }
       this.updatePlaceholder();
@@ -160,15 +160,20 @@ JX.install('Typeahead', {
         this._datasource.unbindFromTypeahead();
         this._waitingListener.remove();
         this._readyListener.remove();
+        this._completeListener.remove();
       }
       this._waitingListener = datasource.listen(
         'waiting',
-        JX.bind(this, this.waitForResults)
-      );
+        JX.bind(this, this.waitForResults));
+
       this._readyListener = datasource.listen(
         'resultsready',
-        JX.bind(this, this.showResults)
-      );
+        JX.bind(this, this.showResults));
+
+      this._completeListener = datasource.listen(
+        'complete',
+        JX.bind(this, this.doneWaitingForResults));
+
       datasource.bindToTypeahead(this);
       this._datasource = datasource;
     },
@@ -211,12 +216,39 @@ JX.install('Typeahead', {
      * in response to events from the datasource you have configured.
      *
      * @task   control
-     * @param  list List of ##<a />## tags to show as suggestions/results.
+     * @param  list     List of ##<a />## tags to show as suggestions/results.
+     * @param  string   The query this result list corresponds to.
      * @return void
      */
-    showResults : function(results) {
+    showResults : function(results, value) {
+      if (value != this._value) {
+        // This result list is for an old query, and no longer represents
+        // the input state of the typeahead.
+
+        // For example, the user may have typed "dog", and then they delete
+        // their query and type "cat", and then the "dog" results arrive from
+        // the source.
+
+        // Another case is that the user made a selection in a tokenizer,
+        // and then results returned. However, the typeahead is now empty, and
+        // we don't want to pop it back open.
+
+        // In all cases, just throw these results away. They are no longer
+        // relevant.
+        return;
+      }
+
       var obj = {show: results};
       var e = this.invoke('show', obj);
+
+      // If the user has an element focused, store the value before we redraw.
+      // After we redraw, try to select the same element if it still exists in
+      // the list. This prevents redraws from disrupting keyboard element
+      // selection.
+      var old_focus = null;
+      if (this._focus >= 0 && this._display[this._focus]) {
+        old_focus = this._display[this._focus].name;
+      }
 
       // Note that the results list may have been update by the "show" event
       // listener. Non-result node (e.g. divider or label) may have been
@@ -233,6 +265,18 @@ JX.install('Typeahead', {
           this._hardpoint.appendChild(this._root);
         }
         JX.DOM.show(this._root);
+
+        // If we had a node focused before, look for a node with the same value
+        // and focus it.
+        if (old_focus !== null) {
+          for (var ii = 0; ii < this._display.length; ii++) {
+            if (this._display[ii].name == old_focus) {
+              this._focus = ii;
+              this._drawFocus();
+              break;
+            }
+          }
+        }
       } else {
         this.hide();
         JX.DOM.setContent(this._root, null);
@@ -247,18 +291,27 @@ JX.install('Typeahead', {
       this._value = this._control.value;
       this.invoke('change', this._value);
     },
+
     /**
-     * Show a "waiting for results" UI in place of the typeahead's dropdown
-     * suggestion menu. NOTE: currently there's no such UI, lolol.
+     * Show a "waiting for results" UI. We may be showing a partial result set
+     * at this time, if the user is extending a query we already have results
+     * for.
      *
      * @task control
      * @return void
      */
     waitForResults : function() {
-      // TODO: Build some sort of fancy spinner or "..." type UI here to
-      // visually indicate that we're waiting on the server.
-      // Wait on the datasource 'complete' event for hiding the spinner.
-      this.hide();
+      JX.DOM.alterClass(this._hardpoint, 'jx-typeahead-waiting', true);
+    },
+
+    /**
+     * Hide the "waiting for results" UI.
+     *
+     * @task control
+     * @return void
+     */
+    doneWaitingForResults : function() {
+      JX.DOM.alterClass(this._hardpoint, 'jx-typeahead-waiting', false);
     },
 
     /**
@@ -349,7 +402,7 @@ JX.install('Typeahead', {
         this._choose(this._display[this._focus]);
         return true;
       } else {
-        result = this.invoke('query', this._control.value);
+        var result = this.invoke('query', this._control.value);
         if (result.getPrevented()) {
           return true;
         }

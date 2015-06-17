@@ -3,8 +3,7 @@
 final class DiffusionRepositoryEditBasicController
   extends DiffusionRepositoryEditController {
 
-  public function processRequest() {
-    $request = $this->getRequest();
+  protected function processDiffusionRequest(AphrontRequest $request) {
     $user = $request->getUser();
     $drequest = $this->diffusionRequest;
     $repository = $drequest->getRepository();
@@ -36,7 +35,10 @@ final class DiffusionRepositoryEditBasicController
       $v_name = $request->getStr('name');
       $v_desc = $request->getStr('description');
       $v_projects = $request->getArr('projectPHIDs');
-      $v_clone_name = $request->getStr('cloneName');
+
+      if ($repository->isHosted()) {
+        $v_clone_name = $request->getStr('cloneName');
+      }
 
       if (!strlen($v_name)) {
         $e_name = pht('Required');
@@ -70,7 +72,7 @@ final class DiffusionRepositoryEditBasicController
           ->setTransactionType($type_edge)
           ->setMetadataValue(
             'edge:type',
-            PhabricatorEdgeConfig::TYPE_OBJECT_HAS_PROJECT)
+            PhabricatorProjectObjectHasProjectEdgeType::EDGECONST)
           ->setNewValue(
             array(
               '=' => array_fuse($v_projects),
@@ -90,7 +92,6 @@ final class DiffusionRepositoryEditBasicController
     $crumbs->addTextCrumb(pht('Edit Basics'));
 
     $title = pht('Edit %s', $repository->getName());
-    $project_handles = $this->loadViewerHandles($repository->getProjectPHIDs());
 
     $form = id(new AphrontFormView())
       ->setUser($user)
@@ -99,27 +100,34 @@ final class DiffusionRepositoryEditBasicController
           ->setName('name')
           ->setLabel(pht('Name'))
           ->setValue($v_name)
-          ->setError($e_name))
-      ->appendChild(
-        id(new AphrontFormTextControl())
-          ->setName('cloneName')
-          ->setLabel(pht('Clone/Checkout As'))
-          ->setValue($v_clone_name)
-          ->setCaption(
-            pht(
-              'Optional directory name to use when cloning or checking out '.
-              'this repository.')))
+          ->setError($e_name));
+
+    if ($repository->isHosted()) {
+      $form
+        ->appendChild(
+          id(new AphrontFormTextControl())
+            ->setName('cloneName')
+            ->setLabel(pht('Clone/Checkout As'))
+            ->setValue($v_clone_name)
+            ->setCaption(
+              pht(
+                'Optional directory name to use when cloning or checking out '.
+                'this repository.')));
+    }
+
+    $form
       ->appendChild(
         id(new PhabricatorRemarkupControl())
+          ->setUser($user)
           ->setName('description')
           ->setLabel(pht('Description'))
           ->setValue($v_desc))
-      ->appendChild(
+      ->appendControl(
         id(new AphrontFormTokenizerControl())
-          ->setDatasource('/typeahead/common/projects/')
+          ->setDatasource(new PhabricatorProjectDatasource())
           ->setName('projectPHIDs')
           ->setLabel(pht('Projects'))
-          ->setValue($project_handles))
+          ->setValue($repository->getProjectPHIDs()))
       ->appendChild(
         id(new AphrontFormSubmitControl())
           ->setValue(pht('Save'))
@@ -135,28 +143,34 @@ final class DiffusionRepositoryEditBasicController
     return $this->buildApplicationPage(
       array(
         $crumbs,
-        $object_box),
+        $object_box,
+      ),
       array(
         'title' => $title,
-        'device' => true,
       ));
   }
 
   private function getReadmeInstructions() {
     return pht(<<<EOTEXT
-You can also create a `README` file at the repository root (or in any
+You can also create a `%s` file at the repository root (or in any
 subdirectory) to provide information about the repository. These formats are
 supported:
 
-| File Name       | Rendered As... |
-|-----------------|----------------|
-| `README`          | Plain Text |
-| `README.txt`      | Plain Text |
-| `README.remarkup` | Remarkup |
-| `README.md`       | Remarkup |
-| `README.rainbow`  | \xC2\xA1Fiesta! |
+| File Name | Rendered As...  |
+|-----------|-----------------|
+| `%s`      | Plain Text      |
+| `%s`      | Plain Text      |
+| `%s`      | Remarkup        |
+| `%s`      | Remarkup        |
+| `%s`      | \xC2\xA1Fiesta! |
 EOTEXT
-);
+  ,
+  'README',
+  'README',
+  'README.txt',
+  'README.remarkup',
+  'README.md',
+  'README.rainbow');
   }
 
 }

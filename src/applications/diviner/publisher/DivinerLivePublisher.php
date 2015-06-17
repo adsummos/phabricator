@@ -11,17 +11,22 @@ final class DivinerLivePublisher extends DivinerPublisher {
       $book = id(new DivinerLiveBook())->loadOneWhere(
         'name = %s',
         $book_name);
+
       if (!$book) {
         $book = id(new DivinerLiveBook())
           ->setName($book_name)
-          ->setViewPolicy(PhabricatorPolicies::POLICY_USER)
+          ->setViewPolicy(PhabricatorPolicies::getMostOpenPolicy())
+          ->setEditPolicy(PhabricatorPolicies::POLICY_ADMIN)
           ->save();
       }
 
       $book->setConfigurationData($this->getConfigurationData())->save();
-
       $this->book = $book;
+
+      id(new PhabricatorSearchIndexer())
+        ->queueDocumentForIndexing($book->getPHID());
     }
+
     return $this->book;
   }
 
@@ -33,8 +38,6 @@ final class DivinerLivePublisher extends DivinerPublisher {
       ->withNames(array($atom->getName()))
       ->withContexts(array($atom->getContext()))
       ->withIndexes(array($this->getAtomSimilarIndex($atom)))
-      ->withIncludeUndocumentable(true)
-      ->withIncludeGhosts(true)
       ->executeOne();
 
     if ($symbol) {
@@ -66,7 +69,7 @@ final class DivinerLivePublisher extends DivinerPublisher {
     $symbols = id(new DivinerAtomQuery())
       ->setViewer(PhabricatorUser::getOmnipotentUser())
       ->withBookPHIDs(array($this->loadBook()->getPHID()))
-      ->withIncludeUndocumentable(true)
+      ->withGhosts(false)
       ->execute();
 
     return mpull($symbols, 'getGraphHash');
@@ -75,7 +78,6 @@ final class DivinerLivePublisher extends DivinerPublisher {
   protected function deleteDocumentsByHash(array $hashes) {
     $atom_table = new DivinerLiveAtom();
     $symbol_table = new DivinerLiveSymbol();
-
     $conn_w = $symbol_table->establishConnection('w');
 
     $strings = array();
@@ -127,6 +129,9 @@ final class DivinerLivePublisher extends DivinerPublisher {
 
       $symbol->save();
 
+      id(new PhabricatorSearchIndexer())
+        ->queueDocumentForIndexing($symbol->getPHID());
+
       // TODO: We probably need a finer-grained sense of what "documentable"
       // atoms are. Neither files nor methods are currently considered
       // documentable, but for different reasons: files appear nowhere, while
@@ -143,13 +148,11 @@ final class DivinerLivePublisher extends DivinerPublisher {
           ->setContent(null)
           ->save();
       }
-
     }
   }
 
   public function findAtomByRef(DivinerAtomRef $ref) {
     // TODO: Actually implement this.
-
     return null;
   }
 

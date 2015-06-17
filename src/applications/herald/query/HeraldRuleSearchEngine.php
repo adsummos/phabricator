@@ -1,7 +1,14 @@
 <?php
 
-final class HeraldRuleSearchEngine
-  extends PhabricatorApplicationSearchEngine {
+final class HeraldRuleSearchEngine extends PhabricatorApplicationSearchEngine {
+
+  public function getResultTypeDescription() {
+    return pht('Herald Rules');
+  }
+
+  public function getApplicationClassName() {
+    return 'PhabricatorHeraldApplication';
+  }
 
   public function buildSavedQueryFromRequest(AphrontRequest $request) {
     $saved = new PhabricatorSavedQuery();
@@ -51,22 +58,17 @@ final class HeraldRuleSearchEngine
     AphrontFormView $form,
     PhabricatorSavedQuery $saved_query) {
 
-    $phids = $saved_query->getParameter('authorPHIDs', array());
-    $author_handles = id(new PhabricatorHandleQuery())
-      ->setViewer($this->requireViewer())
-      ->withPHIDs($phids)
-      ->execute();
-
+    $author_phids = $saved_query->getParameter('authorPHIDs', array());
     $content_type = $saved_query->getParameter('contentType');
     $rule_type = $saved_query->getParameter('ruleType');
 
     $form
-      ->appendChild(
+      ->appendControl(
         id(new AphrontFormTokenizerControl())
-          ->setDatasource('/typeahead/common/users/')
+          ->setDatasource(new PhabricatorPeopleDatasource())
           ->setName('authors')
           ->setLabel(pht('Authors'))
-          ->setValue($author_handles))
+          ->setValue($author_phids))
       ->appendChild(
         id(new AphrontFormSelectControl())
           ->setName('contentType')
@@ -96,7 +98,7 @@ final class HeraldRuleSearchEngine
     return '/herald/'.$path;
   }
 
-  public function getBuiltinQueryNames() {
+  protected function getBuiltinQueryNames() {
     $names = array();
 
     if ($this->requireViewer()->isLoggedIn()) {
@@ -110,7 +112,6 @@ final class HeraldRuleSearchEngine
   }
 
   public function buildSavedQueryFromBuiltin($query_key) {
-
     $query = $this->newSavedQuery();
     $query->setQueryKey($query_key);
 
@@ -150,6 +151,65 @@ final class HeraldRuleSearchEngine
 
   private function getRuleTypeValues() {
     return array_fuse(array_keys(HeraldRuleTypeConfig::getRuleTypeMap()));
+  }
+
+  protected function getRequiredHandlePHIDsForResultList(
+    array $rules,
+    PhabricatorSavedQuery $query) {
+
+    return mpull($rules, 'getAuthorPHID');
+  }
+
+  protected function renderResultList(
+    array $rules,
+    PhabricatorSavedQuery $query,
+    array $handles) {
+    assert_instances_of($rules, 'HeraldRule');
+
+    $viewer = $this->requireViewer();
+
+    $content_type_map = HeraldAdapter::getEnabledAdapterMap($viewer);
+
+    $list = id(new PHUIObjectItemListView())
+      ->setUser($viewer);
+    foreach ($rules as $rule) {
+      $id = $rule->getID();
+
+      $item = id(new PHUIObjectItemView())
+        ->setObjectName("H{$id}")
+        ->setHeader($rule->getName())
+        ->setHref($this->getApplicationURI("rule/{$id}/"));
+
+      if ($rule->isPersonalRule()) {
+        $item->addIcon('fa-user', pht('Personal Rule'));
+        $item->addByline(
+          pht(
+            'Authored by %s',
+            $handles[$rule->getAuthorPHID()]->renderLink()));
+      } else if ($rule->isObjectRule()) {
+        $item->addIcon('fa-briefcase', pht('Object Rule'));
+      } else {
+        $item->addIcon('fa-globe', pht('Global Rule'));
+      }
+
+      if ($rule->getIsDisabled()) {
+        $item->setDisabled(true);
+        $item->addIcon('fa-lock grey', pht('Disabled'));
+      }
+
+      $item->addAction(
+        id(new PHUIListItemView())
+          ->setHref($this->getApplicationURI("history/{$id}/"))
+          ->setIcon('fa-file-text-o')
+          ->setName(pht('Edit Log')));
+
+      $content_type_name = idx($content_type_map, $rule->getContentType());
+      $item->addAttribute(pht('Affects: %s', $content_type_name));
+
+      $list->addItem($item);
+    }
+
+    return $list;
   }
 
 }

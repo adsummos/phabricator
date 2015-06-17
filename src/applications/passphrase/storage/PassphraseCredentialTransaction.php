@@ -8,13 +8,16 @@ final class PassphraseCredentialTransaction
   const TYPE_USERNAME = 'passphrase:username';
   const TYPE_SECRET_ID = 'passphrase:secretID';
   const TYPE_DESTROY = 'passphrase:destroy';
+  const TYPE_LOOKEDATSECRET = 'passphrase:lookedAtSecret';
+  const TYPE_LOCK = 'passphrase:lock';
+  const TYPE_CONDUIT = 'passphrase:conduit';
 
   public function getApplicationName() {
     return 'passphrase';
   }
 
   public function getApplicationTransactionType() {
-    return PassphrasePHIDTypeCredential::TYPECONST;
+    return PassphraseCredentialPHIDType::TYPECONST;
   }
 
   public function getApplicationTransactionCommentObject() {
@@ -26,8 +29,12 @@ final class PassphraseCredentialTransaction
     switch ($this->getTransactionType()) {
       case self::TYPE_DESCRIPTION:
         return ($old === null);
+      case self::TYPE_LOCK:
+        return ($old === null);
       case self::TYPE_USERNAME:
         return !strlen($old);
+      case self::TYPE_LOOKEDATSECRET:
+        return false;
     }
     return parent::shouldHide();
   }
@@ -77,6 +84,25 @@ final class PassphraseCredentialTransaction
         return pht(
           '%s destroyed this credential.',
           $this->renderHandleLink($author_phid));
+      case self::TYPE_LOOKEDATSECRET:
+        return pht(
+          '%s examined the secret plaintext for this credential.',
+          $this->renderHandleLink($author_phid));
+      case self::TYPE_LOCK:
+        return pht(
+          '%s locked this credential.',
+          $this->renderHandleLink($author_phid));
+      case self::TYPE_CONDUIT:
+        if ($old) {
+          return pht(
+            '%s disallowed Conduit API access to this credential.',
+            $this->renderHandleLink($author_phid));
+        } else {
+          return pht(
+            '%s allowed Conduit API access to this credential.',
+            $this->renderHandleLink($author_phid));
+        }
+        break;
     }
 
     return parent::getTitle();
@@ -91,16 +117,10 @@ final class PassphraseCredentialTransaction
   }
 
   public function renderChangeDetails(PhabricatorUser $viewer) {
-    $old = $this->getOldValue();
-    $new = $this->getNewValue();
-
-    $view = id(new PhabricatorApplicationTransactionTextDiffDetailView())
-      ->setUser($viewer)
-      ->setOldText(json_encode($old))
-      ->setNewText(json_encode($new));
-
-    return $view->render();
+    return $this->renderTextCorpusChangeDetails(
+      $viewer,
+      json_encode($this->getOldValue()),
+      json_encode($this->getNewValue()));
   }
-
 
 }

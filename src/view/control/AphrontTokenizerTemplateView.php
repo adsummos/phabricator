@@ -5,6 +5,12 @@ final class AphrontTokenizerTemplateView extends AphrontView {
   private $value;
   private $name;
   private $id;
+  private $browseURI;
+
+  public function setBrowseURI($browse_uri) {
+    $this->browseURI = $browse_uri;
+    return $this;
+  }
 
   public function setID($id) {
     $this->id = $id;
@@ -12,6 +18,7 @@ final class AphrontTokenizerTemplateView extends AphrontView {
   }
 
   public function setValue(array $value) {
+    assert_instances_of($value, 'PhabricatorTypeaheadTokenView');
     $this->value = $value;
     return $this;
   }
@@ -34,12 +41,7 @@ final class AphrontTokenizerTemplateView extends AphrontView {
 
     $id = $this->id;
     $name = $this->getName();
-    $values = nonempty($this->getValue(), array());
-
-    $tokens = array();
-    foreach ($values as $key => $value) {
-      $tokens[] = $this->renderToken($key, $value);
-    }
+    $tokens = nonempty($this->getValue(), array());
 
     $input = javelin_tag(
       'input',
@@ -57,36 +59,44 @@ final class AphrontTokenizerTemplateView extends AphrontView {
     $content[] = $input;
     $content[] = phutil_tag('div', array('style' => 'clear: both;'), '');
 
-    return phutil_tag(
+    $container = javelin_tag(
       'div',
       array(
         'id' => $id,
         'class' => 'jx-tokenizer-container',
+        'sigil' => 'tokenizer-container',
       ),
       $content);
-  }
 
-  private function renderToken($key, $value) {
-    $input_name = $this->getName();
-    if ($input_name) {
-      $input_name .= '[]';
+    $icon = id(new PHUIIconView())
+      ->setIconFont('fa-search');
+
+    $browse = id(new PHUIButtonView())
+      ->setTag('a')
+      ->setIcon($icon)
+      ->addClass('tokenizer-browse-button')
+      ->setColor(PHUIButtonView::GREY)
+      ->addSigil('tokenizer-browse');
+
+    $classes = array();
+    $classes[] = 'jx-tokenizer-frame';
+
+    if ($this->browseURI) {
+      $classes[] = 'has-browse';
     }
-    return phutil_tag(
-      'a',
+
+    $frame = javelin_tag(
+      'div',
       array(
-        'class' => 'jx-tokenizer-token',
+        'class' => implode(' ', $classes),
+        'sigil' => 'tokenizer-frame',
       ),
       array(
-        $value,
-        phutil_tag(
-          'input',
-          array(
-            'type'  => 'hidden',
-            'name'  => $input_name,
-            'value' => $key,
-          )),
-        phutil_tag('span', array('class' => 'jx-tokenizer-x-placeholder'), ''),
+        $container,
+        $browse,
       ));
+
+    return $frame;
   }
 
 }

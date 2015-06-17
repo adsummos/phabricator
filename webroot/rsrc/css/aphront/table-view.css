@@ -95,12 +95,12 @@ th.aphront-table-view-sortable-selected {
 */
 
 .aphront-table-view th {
-  padding: 8px 10px;
+  padding: 10px 10px;
   font-size: 13px;
 }
 
 .aphront-table-view td {
-  padding: 6px 10px;
+  padding: 8px 10px;
   font-size: 12px;
 }
 
@@ -144,6 +144,7 @@ th.aphront-table-view-sortable-selected {
 
 .aphront-table-view td.pri {
   font-weight: bold;
+  color: {$darkbluetext};
 }
 
 .aphront-table-view td.wide {
@@ -151,6 +152,7 @@ th.aphront-table-view-sortable-selected {
   width: 100%;
 }
 
+.aphront-table-view th.right,
 .aphront-table-view td.right {
   text-align: right;
 }
@@ -180,6 +182,11 @@ th.aphront-table-view-sortable-selected {
   width: 1px;
 }
 
+.aphront-table-view td.icon, .aphront-table-view th.icon {
+  width: 1px;
+  padding: 0px;
+}
+
 div.single-display-line-bounds {
   width: 100%;
   position: relative;
@@ -204,6 +211,16 @@ span.single-display-line-content {
   background: #fcf2bb;
 }
 
+.aphront-table-view tr.diff-removed,
+.aphront-table-view tr.alt-diff-removed {
+  background: {$lightred}
+}
+
+.aphront-table-view tr.diff-added,
+.aphront-table-view tr.alt-diff-added {
+  background: {$lightgreen}
+}
+
 .aphront-table-view tr.no-data td {
   padding: 12px;
   text-align: center;
@@ -219,7 +236,7 @@ span.single-display-line-content {
 .aphront-table-view td.threads {
   font-family: monospace;
   white-space: pre;
-  padding: 0;
+  padding: 0 0 0 8px;
 }
 
 .aphront-table-view td.threads canvas {
@@ -229,6 +246,17 @@ span.single-display-line-content {
 .aphront-table-view td.radio {
   text-align: center;
   padding: 2px 4px 0px;
+}
+
+.aphront-table-view th.center,
+.aphront-table-view td.center {
+  text-align: center;
+}
+
+.device .aphront-table-view td + td.center,
+.device .aphront-table-view th + th.center {
+  padding-left: 3px;
+  padding-right: 3px;
 }
 
 .device-desktop .aphront-table-view-device {

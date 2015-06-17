@@ -1,17 +1,20 @@
 <?php
 
 final class PhabricatorDashboardPanelListController
-  extends PhabricatorDashboardController
-  implements PhabricatorApplicationSearchResultsControllerInterface {
+  extends PhabricatorDashboardController {
 
   private $queryKey;
+
+  public function shouldAllowPublic() {
+    return true;
+  }
+
   public function willProcessRequest(array $data) {
     $this->queryKey = idx($data, 'queryKey');
   }
 
   public function processRequest() {
-    $request = $this->getRequest();
-    $controller = id(new PhabricatorApplicationSearchController($request))
+    $controller = id(new PhabricatorApplicationSearchController())
       ->setQueryKey($this->queryKey)
       ->setSearchEngine(new PhabricatorDashboardPanelSearchEngine())
       ->setNavigation($this->buildSideNavView());
@@ -33,39 +36,18 @@ final class PhabricatorDashboardPanelListController
     return $nav;
   }
 
-  public function buildApplicationCrumbs() {
+  protected function buildApplicationCrumbs() {
     $crumbs = parent::buildApplicationCrumbs();
 
     $crumbs->addTextCrumb(pht('Panels'), $this->getApplicationURI().'panel/');
 
     $crumbs->addAction(
       id(new PHUIListItemView())
-        ->setIcon('create')
+        ->setIcon('fa-plus-square')
         ->setName(pht('Create Panel'))
         ->setHref($this->getApplicationURI().'panel/create/'));
 
     return $crumbs;
-  }
-
-  public function renderResultsList(
-    array $panels,
-    PhabricatorSavedQuery $query) {
-
-    $viewer = $this->getRequest()->getUser();
-
-    $list = new PHUIObjectItemListView();
-    $list->setUser($viewer);
-    foreach ($panels as $panel) {
-      $item = id(new PHUIObjectItemView())
-        ->setObjectName($panel->getMonogram())
-        ->setHeader($panel->getName())
-        ->setHref('/'.$panel->getMonogram())
-        ->setObject($panel);
-
-      $list->addItem($item);
-    }
-
-    return $list;
   }
 
 }

@@ -5,9 +5,11 @@
  */
 
 JX.behavior('countdown-timer', function(config) {
-
-  var container = JX.$(config.container);
-  calculateTimeLeft();
+  try {
+    var container = JX.$(config.container);
+  } catch (ignored) {
+    return;
+  }
 
   function setComponent(which, content) {
     var component = JX.DOM.find(container, '*', 'phabricator-timer-' + which);
@@ -49,5 +51,5 @@ JX.behavior('countdown-timer', function(config) {
     setComponent('seconds', [seconds, JX.$N('small', {}, ['.', partial])]);
   }
 
+  calculateTimeLeft();
 });
-

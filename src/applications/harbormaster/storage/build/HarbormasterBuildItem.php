@@ -4,15 +4,16 @@ final class HarbormasterBuildItem extends HarbormasterDAO {
 
   protected $name;
 
-  public function getConfiguration() {
+  protected function getConfiguration() {
     return array(
       self::CONFIG_AUX_PHID => true,
+      self::CONFIG_NO_TABLE => true,
     ) + parent::getConfiguration();
   }
 
   public function generatePHID() {
     return PhabricatorPHID::generateNewPHID(
-      HarbormasterPHIDTypeBuildItem::TYPECONST);
+      HarbormasterBuildItemPHIDType::TYPECONST);
   }
 
 }

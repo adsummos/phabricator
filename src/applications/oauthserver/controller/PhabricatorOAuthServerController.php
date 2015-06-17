@@ -1,31 +1,24 @@
 <?php
 
 abstract class PhabricatorOAuthServerController
-extends PhabricatorController {
+  extends PhabricatorController {
 
   public function buildStandardPageResponse($view, array $data) {
     $user = $this->getRequest()->getUser();
     $page = $this->buildStandardPageView();
-    $page->setApplicationName('OAuth Server');
+    $page->setApplicationName(pht('OAuth Server'));
     $page->setBaseURI('/oauthserver/');
     $page->setTitle(idx($data, 'title'));
 
     $nav = new AphrontSideNavFilterView();
     $nav->setBaseURI(new PhutilURI('/oauthserver/'));
-    $nav->addLabel('Client Authorizations');
-    $nav->addFilter('clientauthorization',
-                    'My Authorizations');
-    $nav->addLabel('Clients');
-    $nav->addFilter('client/create',
-                    'Create Client');
+    $nav->addLabel(pht('Clients'));
+    $nav->addFilter('client/create', pht('Create Client'));
     foreach ($this->getExtraClientFilters() as $filter) {
-      $nav->addFilter($filter['url'],
-                      $filter['label']);
+      $nav->addFilter($filter['url'], $filter['label']);
     }
-    $nav->addFilter('client',
-                    'My Clients');
-    $nav->selectFilter($this->getFilter(),
-                       'clientauthorization');
+    $nav->addFilter('client', pht('My Clients'));
+    $nav->selectFilter($this->getFilter(), 'clientauthorization');
 
     $nav->appendChild($view);
 
@@ -58,8 +51,8 @@ extends PhabricatorController {
   }
 
   protected function buildErrorView($error_message) {
-    $error = new AphrontErrorView();
-    $error->setSeverity(AphrontErrorView::SEVERITY_ERROR);
+    $error = new PHUIInfoView();
+    $error->setSeverity(PHUIInfoView::SEVERITY_ERROR);
     $error->setTitle($error_message);
 
     return $error;

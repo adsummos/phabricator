@@ -4,11 +4,13 @@ final class PhabricatorApplicationQuery
   extends PhabricatorCursorPagedPolicyAwareQuery {
 
   private $installed;
-  private $beta;
+  private $prototypes;
   private $firstParty;
   private $nameContains;
   private $unlisted;
   private $classes;
+  private $launchable;
+  private $applicationEmailSupport;
   private $phids;
 
   const ORDER_APPLICATION = 'order:application';
@@ -26,8 +28,8 @@ final class PhabricatorApplicationQuery
     return $this;
   }
 
-  public function withBeta($beta) {
-    $this->beta = $beta;
+  public function withPrototypes($prototypes) {
+    $this->prototypes = $prototypes;
     return $this;
   }
 
@@ -38,6 +40,16 @@ final class PhabricatorApplicationQuery
 
   public function withUnlisted($unlisted) {
     $this->unlisted = $unlisted;
+    return $this;
+  }
+
+  public function withLaunchable($launchable) {
+    $this->launchable = $launchable;
+    return $this;
+  }
+
+  public function withApplicationEmailSupport($appemails) {
+    $this->applicationEmailSupport = $appemails;
     return $this;
   }
 
@@ -56,7 +68,7 @@ final class PhabricatorApplicationQuery
     return $this;
   }
 
-  public function loadPage() {
+  protected function loadPage() {
     $apps = PhabricatorApplication::getAllApplications();
 
     if ($this->classes) {
@@ -93,9 +105,9 @@ final class PhabricatorApplicationQuery
       }
     }
 
-    if ($this->beta !== null) {
+    if ($this->prototypes !== null) {
       foreach ($apps as $key => $app) {
-        if ($app->isBeta() != $this->beta) {
+        if ($app->isPrototype() != $this->prototypes) {
           unset($apps[$key]);
         }
       }
@@ -112,6 +124,23 @@ final class PhabricatorApplicationQuery
     if ($this->unlisted !== null) {
       foreach ($apps as $key => $app) {
         if ($app->isUnlisted() != $this->unlisted) {
+          unset($apps[$key]);
+        }
+      }
+    }
+
+    if ($this->launchable !== null) {
+      foreach ($apps as $key => $app) {
+        if ($app->isLaunchable() != $this->launchable) {
+          unset($apps[$key]);
+        }
+      }
+    }
+
+    if ($this->applicationEmailSupport !== null) {
+      foreach ($apps as $key => $app) {
+        if ($app->supportsEmailIntegration() !=
+            $this->applicationEmailSupport) {
           unset($apps[$key]);
         }
       }
@@ -138,6 +167,12 @@ final class PhabricatorApplicationQuery
     // to filter its results just leaves us recursing indefinitely. Users
     // always have access to applications regardless of other policy settings
     // anyway.
+    return null;
+  }
+
+  protected function getResultCursor($object) {
+    // TODO: This won't work, but doesn't matter until we write more than 100
+    // applications. Since we only have about 70, just avoid fataling for now.
     return null;
   }
 

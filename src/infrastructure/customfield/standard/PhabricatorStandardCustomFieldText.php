@@ -40,14 +40,27 @@ final class PhabricatorStandardCustomFieldText
   public function appendToApplicationSearchForm(
     PhabricatorApplicationSearchEngine $engine,
     AphrontFormView $form,
-    $value,
-    array $handles) {
+    $value) {
 
     $form->appendChild(
       id(new AphrontFormTextControl())
         ->setLabel($this->getFieldName())
         ->setName($this->getFieldKey())
         ->setValue($value));
+  }
+
+  public function shouldAppearInHerald() {
+    return true;
+  }
+
+  public function getHeraldFieldConditions() {
+    return array(
+      HeraldAdapter::CONDITION_CONTAINS,
+      HeraldAdapter::CONDITION_NOT_CONTAINS,
+      HeraldAdapter::CONDITION_IS,
+      HeraldAdapter::CONDITION_IS_NOT,
+      HeraldAdapter::CONDITION_REGEXP,
+    );
   }
 
 }

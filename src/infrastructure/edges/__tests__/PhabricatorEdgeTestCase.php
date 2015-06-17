@@ -21,9 +21,8 @@ final class PhabricatorEdgeTestCase extends PhabricatorTestCase {
     $phid2 = $obj2->getPHID();
 
     $editor = id(new PhabricatorEdgeEditor())
-      ->setActor($user)
-      ->addEdge($phid1, PhabricatorEdgeConfig::TYPE_TEST_NO_CYCLE, $phid2)
-      ->addEdge($phid2, PhabricatorEdgeConfig::TYPE_TEST_NO_CYCLE, $phid1);
+      ->addEdge($phid1, PhabricatorTestNoCycleEdgeType::EDGECONST , $phid2)
+      ->addEdge($phid2, PhabricatorTestNoCycleEdgeType::EDGECONST , $phid1);
 
     $caught = null;
     try {
@@ -32,22 +31,18 @@ final class PhabricatorEdgeTestCase extends PhabricatorTestCase {
       $caught = $ex;
     }
 
-    $this->assertEqual(
-      true,
-      $caught instanceof Exception);
+    $this->assertTrue($caught instanceof Exception);
 
 
     // The first edit should go through (no cycle), bu the second one should
     // fail (it introduces a cycle).
 
     $editor = id(new PhabricatorEdgeEditor())
-      ->setActor($user)
-      ->addEdge($phid1, PhabricatorEdgeConfig::TYPE_TEST_NO_CYCLE, $phid2)
+      ->addEdge($phid1, PhabricatorTestNoCycleEdgeType::EDGECONST , $phid2)
       ->save();
 
     $editor = id(new PhabricatorEdgeEditor())
-      ->setActor($user)
-      ->addEdge($phid2, PhabricatorEdgeConfig::TYPE_TEST_NO_CYCLE, $phid1);
+      ->addEdge($phid2, PhabricatorTestNoCycleEdgeType::EDGECONST , $phid1);
 
     $caught = null;
     try {
@@ -56,9 +51,7 @@ final class PhabricatorEdgeTestCase extends PhabricatorTestCase {
       $caught = $ex;
     }
 
-    $this->assertEqual(
-      true,
-      $caught instanceof Exception);
+    $this->assertTrue($caught instanceof Exception);
   }
 
 

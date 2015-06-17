@@ -26,23 +26,18 @@ final class PassphraseCredentialEditController extends PassphraseController {
         return new Aphront404Response();
       }
 
-      $type = PassphraseCredentialType::getTypeByConstant(
-        $credential->getCredentialType());
-      if (!$type) {
-        throw new Exception(pht('Credential has invalid type "%s"!', $type));
-      }
-
-      if (!$type->isCreateable()) {
-        throw new Exception(
-          pht('Credential has noncreateable type "%s"!', $type));
-      }
+      $type = $this->getCredentialType($credential->getCredentialType());
 
       $is_new = false;
     } else {
       $type_const = $request->getStr('type');
-      $type = PassphraseCredentialType::getTypeByConstant($type_const);
-      if (!$type) {
-        return new Aphront404Response();
+      $type = $this->getCredentialType($type_const);
+
+      if (!$type->isCreateable()) {
+        throw new Exception(
+          pht(
+            'Credential has noncreateable type "%s"!',
+            $credential->getCredentialType()));
       }
 
       $credential = PassphraseCredential::initializeNewCredential($viewer)
@@ -52,7 +47,11 @@ final class PassphraseCredentialEditController extends PassphraseController {
       $is_new = true;
 
       // Prefill username if provided.
-      $credential->setUsername($request->getStr('username'));
+      $credential->setUsername((string)$request->getStr('username'));
+
+      if (!$request->getStr('isInitialized')) {
+        $type->didInitializeNewCredential($viewer, $credential);
+      }
     }
 
     $errors = array();
@@ -65,9 +64,21 @@ final class PassphraseCredentialEditController extends PassphraseController {
     $v_username = $credential->getUsername();
     $e_username = true;
 
+    $v_is_locked = false;
+
     $bullet = "\xE2\x80\xA2";
 
     $v_secret = $credential->getSecretID() ? str_repeat($bullet, 32) : null;
+    if ($is_new && ($v_secret === null)) {
+      // If we're creating a new credential, the credential type may have
+      // populated the secret for us (for example, generated an SSH key). In
+      // this case,
+      try {
+        $v_secret = $credential->getSecret()->openEnvelope();
+      } catch (Exception $ex) {
+        // Ignore this.
+      }
+    }
 
     $validation_exception = null;
     $errors = array();
@@ -79,6 +90,7 @@ final class PassphraseCredentialEditController extends PassphraseController {
       $v_username = $request->getStr('username');
       $v_view_policy = $request->getStr('viewPolicy');
       $v_edit_policy = $request->getStr('editPolicy');
+      $v_is_locked = $request->getStr('lock');
 
       $v_secret = $request->getStr('secret');
       $v_password = $request->getStr('password');
@@ -112,6 +124,7 @@ final class PassphraseCredentialEditController extends PassphraseController {
         $type_username = PassphraseCredentialTransaction::TYPE_USERNAME;
         $type_destroy = PassphraseCredentialTransaction::TYPE_DESTROY;
         $type_secret_id = PassphraseCredentialTransaction::TYPE_SECRET_ID;
+        $type_is_locked = PassphraseCredentialTransaction::TYPE_LOCK;
         $type_view_policy = PhabricatorTransactions::TYPE_VIEW_POLICY;
         $type_edit_policy = PhabricatorTransactions::TYPE_EDIT_POLICY;
 
@@ -126,10 +139,6 @@ final class PassphraseCredentialEditController extends PassphraseController {
           ->setNewValue($v_desc);
 
         $xactions[] = id(new PassphraseCredentialTransaction())
-          ->setTransactionType($type_username)
-          ->setNewValue($v_username);
-
-        $xactions[] = id(new PassphraseCredentialTransaction())
           ->setTransactionType($type_view_policy)
           ->setNewValue($v_view_policy);
 
@@ -141,20 +150,36 @@ final class PassphraseCredentialEditController extends PassphraseController {
         // the amount of code which handles secret plaintexts.
         $credential->openTransaction();
 
-        $min_secret = str_replace($bullet, '', trim($v_decrypt));
-        if (strlen($min_secret)) {
-          // If the credential was previously destroyed, restore it when it is
-          // edited if a secret is provided.
-          $xactions[] = id(new PassphraseCredentialTransaction())
-            ->setTransactionType($type_destroy)
-            ->setNewValue(0);
+        if (!$credential->getIsLocked()) {
+          if ($type->shouldRequireUsername()) {
+            $xactions[] = id(new PassphraseCredentialTransaction())
+            ->setTransactionType($type_username)
+            ->setNewValue($v_username);
+          }
+          // If some value other than a sequence of bullets was provided for
+          // the credential, update it. In particular, note that we are
+          // explicitly allowing empty secrets: one use case is HTTP auth where
+          // the username is a secret token which covers both identity and
+          // authentication.
 
-          $new_secret = id(new PassphraseSecret())
-            ->setSecretData($v_decrypt)
-            ->save();
+          if (!preg_match('/^('.$bullet.')+$/', trim($v_decrypt))) {
+            // If the credential was previously destroyed, restore it when it is
+            // edited if a secret is provided.
+            $xactions[] = id(new PassphraseCredentialTransaction())
+              ->setTransactionType($type_destroy)
+              ->setNewValue(0);
+
+            $new_secret = id(new PassphraseSecret())
+              ->setSecretData($v_decrypt)
+              ->save();
+            $xactions[] = id(new PassphraseCredentialTransaction())
+              ->setTransactionType($type_secret_id)
+              ->setNewValue($new_secret->getID());
+          }
+
           $xactions[] = id(new PassphraseCredentialTransaction())
-            ->setTransactionType($type_secret_id)
-            ->setNewValue($new_secret->getID());
+            ->setTransactionType($type_is_locked)
+            ->setNewValue($v_is_locked);
         }
 
         try {
@@ -196,15 +221,11 @@ final class PassphraseCredentialEditController extends PassphraseController {
       ->execute();
 
     $secret_control = $type->newSecretControl();
+    $credential_is_locked = $credential->getIsLocked();
 
-    if ($request->isAjax()) {
-      $form = new PHUIFormLayoutView();
-    } else {
-      $form = id(new AphrontFormView())
-        ->setUser($viewer);
-    }
-
-    $form
+    $form = id(new AphrontFormView())
+      ->setUser($viewer)
+      ->addHiddenInput('isInitialized', true)
       ->appendChild(
         id(new AphrontFormTextControl())
           ->setName('name')
@@ -236,25 +257,54 @@ final class PassphraseCredentialEditController extends PassphraseController {
           ->setCapability(PhabricatorPolicyCapability::CAN_EDIT)
           ->setPolicies($policies))
       ->appendChild(
-        id(new AphrontFormDividerControl()))
+        id(new AphrontFormDividerControl()));
+
+    if ($credential_is_locked) {
+      $form->appendRemarkupInstructions(
+        pht('This credential is permanently locked and can not be edited.'));
+    }
+
+    if ($type->shouldRequireUsername()) {
+      $form
       ->appendChild(
         id(new AphrontFormTextControl())
           ->setName('username')
           ->setLabel(pht('Login/Username'))
           ->setValue($v_username)
-          ->setError($e_username))
-      ->appendChild(
+          ->setDisabled($credential_is_locked)
+          ->setError($e_username));
+    }
+       $form
+       ->appendChild(
         $secret_control
           ->setName('secret')
           ->setLabel($type->getSecretLabel())
+          ->setDisabled($credential_is_locked)
           ->setValue($v_secret));
 
     if ($type->shouldShowPasswordField()) {
       $form->appendChild(
         id(new AphrontFormPasswordControl())
+          ->setDisableAutocomplete(true)
           ->setName('password')
           ->setLabel($type->getPasswordLabel())
+          ->setDisabled($credential_is_locked)
           ->setError($e_password));
+    }
+
+    if ($is_new) {
+      $form->appendChild(
+        id(new AphrontFormCheckboxControl())
+          ->addCheckbox(
+            'lock',
+            1,
+            array(
+              phutil_tag('strong', array(), pht('Lock Permanently:')),
+              ' ',
+              pht('Prevent the secret from being revealed or changed.'),
+            ),
+            $v_is_locked)
+          ->setDisabled($credential_is_locked));
     }
 
     $crumbs = $this->buildApplicationCrumbs();
@@ -263,6 +313,7 @@ final class PassphraseCredentialEditController extends PassphraseController {
       $title = pht('Create Credential');
       $header = pht('Create New Credential');
       $crumbs->addTextCrumb(pht('Create'));
+      $cancel_uri = $this->getApplicationURI();
     } else {
       $title = pht('Edit Credential');
       $header = pht('Edit Credential %s', 'K'.$credential->getID());
@@ -270,19 +321,22 @@ final class PassphraseCredentialEditController extends PassphraseController {
         'K'.$credential->getID(),
         '/K'.$credential->getID());
       $crumbs->addTextCrumb(pht('Edit'));
+      $cancel_uri = '/K'.$credential->getID();
     }
 
     if ($request->isAjax()) {
-      $errors = id(new AphrontErrorView())->setErrors($errors);
+      if ($errors) {
+        $errors = id(new PHUIInfoView())->setErrors($errors);
+      }
 
       $dialog = id(new AphrontDialogView())
         ->setUser($viewer)
         ->setWidth(AphrontDialogView::WIDTH_FORM)
         ->setTitle($title)
         ->appendChild($errors)
-        ->appendChild($form)
+        ->appendChild($form->buildLayoutView())
         ->addSubmitButton(pht('Create Credential'))
-        ->addCancelButton($this->getApplicationURI());
+        ->addCancelButton($cancel_uri);
 
       return id(new AphrontDialogResponse())->setDialog($dialog);
     }
@@ -290,7 +344,7 @@ final class PassphraseCredentialEditController extends PassphraseController {
     $form->appendChild(
       id(new AphrontFormSubmitControl())
         ->setValue(pht('Save'))
-        ->addCancelButton($this->getApplicationURI()));
+        ->addCancelButton($cancel_uri));
 
     $box = id(new PHUIObjectBoxView())
       ->setHeaderText($header)
@@ -305,8 +359,18 @@ final class PassphraseCredentialEditController extends PassphraseController {
       ),
       array(
         'title' => $title,
-        'device' => true,
       ));
+  }
+
+  private function getCredentialType($type_const) {
+    $type = PassphraseCredentialType::getTypeByConstant($type_const);
+
+    if (!$type) {
+      throw new Exception(
+        pht('Credential has invalid type "%s"!', $type_const));
+    }
+
+    return $type;
   }
 
 }

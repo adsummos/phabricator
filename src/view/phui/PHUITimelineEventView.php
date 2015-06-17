@@ -2,6 +2,8 @@
 
 final class PHUITimelineEventView extends AphrontView {
 
+  const DELIMITER = " \xC2\xB7 ";
+
   private $userHandle;
   private $title;
   private $icon;
@@ -12,9 +14,54 @@ final class PHUITimelineEventView extends AphrontView {
   private $anchor;
   private $isEditable;
   private $isEdited;
+  private $isRemovable;
   private $transactionPHID;
   private $isPreview;
   private $eventGroup = array();
+  private $hideByDefault;
+  private $token;
+  private $tokenRemoved;
+  private $quoteTargetID;
+  private $isNormalComment;
+  private $quoteRef;
+  private $reallyMajorEvent;
+  private $hideCommentOptions = false;
+
+  public function setQuoteRef($quote_ref) {
+    $this->quoteRef = $quote_ref;
+    return $this;
+  }
+
+  public function getQuoteRef() {
+    return $this->quoteRef;
+  }
+
+  public function setQuoteTargetID($quote_target_id) {
+    $this->quoteTargetID = $quote_target_id;
+    return $this;
+  }
+
+  public function getQuoteTargetID() {
+    return $this->quoteTargetID;
+  }
+
+  public function setIsNormalComment($is_normal_comment) {
+    $this->isNormalComment = $is_normal_comment;
+    return $this;
+  }
+
+  public function getIsNormalComment() {
+    return $this->isNormalComment;
+  }
+
+  public function setHideByDefault($hide_by_default) {
+    $this->hideByDefault = $hide_by_default;
+    return $this;
+  }
+
+  public function getHideByDefault() {
+    return $this->hideByDefault;
+  }
 
   public function setTransactionPHID($transaction_phid) {
     $this->transactionPHID = $transaction_phid;
@@ -52,6 +99,15 @@ final class PHUITimelineEventView extends AphrontView {
     return $this->isEditable;
   }
 
+  public function setIsRemovable($is_removable) {
+    $this->isRemovable = $is_removable;
+    return $this;
+  }
+
+  public function getIsRemovable() {
+    return $this->isRemovable;
+  }
+
   public function setDateCreated($date_created) {
     $this->dateCreated = $date_created;
     return $this;
@@ -80,6 +136,10 @@ final class PHUITimelineEventView extends AphrontView {
     return $this;
   }
 
+  public function getAnchor() {
+    return $this->anchor;
+  }
+
   public function setTitle($title) {
     $this->title = $title;
     return $this;
@@ -100,6 +160,26 @@ final class PHUITimelineEventView extends AphrontView {
     return $this;
   }
 
+  public function setReallyMajorEvent($me) {
+    $this->reallyMajorEvent = $me;
+    return $this;
+  }
+
+  public function setHideCommentOptions($hide_comment_options) {
+    $this->hideCommentOptions = $hide_comment_options;
+    return $this;
+  }
+
+  public function getHideCommentOptions() {
+    return $this->hideCommentOptions;
+  }
+
+  public function setToken($token, $removed = false) {
+    $this->token = $token;
+    $this->tokenRemoved = $removed;
+    return $this;
+  }
+
   public function getEventGroup() {
     return array_merge(array($this), $this->eventGroup);
   }
@@ -109,68 +189,65 @@ final class PHUITimelineEventView extends AphrontView {
     return $this;
   }
 
-  protected function renderEventTitle($is_first_event, $force_icon) {
-    $title = $this->title;
-    if (($title === null) && !$this->hasChildren()) {
-      $title = '';
+  protected function shouldRenderEventTitle() {
+    if ($this->title === null) {
+      return false;
     }
 
-    if ($is_first_event) {
-      $extra = array();
-      $is_first_extra = true;
-      foreach ($this->getEventGroup() as $event) {
-        $extra[] = $event->renderExtra($is_first_extra);
-        $is_first_extra = false;
+    return true;
+  }
+
+  protected function renderEventTitle($force_icon, $has_menu, $extra) {
+    $title = $this->title;
+
+    $title_classes = array();
+    $title_classes[] = 'phui-timeline-title';
+
+    $icon = null;
+    if ($this->icon || $force_icon) {
+      $title_classes[] = 'phui-timeline-title-with-icon';
+    }
+
+    if ($has_menu) {
+      $title_classes[] = 'phui-timeline-title-with-menu';
+    }
+
+    if ($this->icon) {
+      $fill_classes = array();
+      $fill_classes[] = 'phui-timeline-icon-fill';
+      if ($this->color) {
+        $fill_classes[] = 'phui-timeline-icon-fill-'.$this->color;
       }
-      $extra = array_reverse($extra);
-      $extra = array_mergev($extra);
-      $extra = phutil_tag(
+
+      $icon = id(new PHUIIconView())
+        ->setIconFont($this->icon.' white')
+        ->addClass('phui-timeline-icon');
+
+      $icon = phutil_tag(
         'span',
         array(
-          'class' => 'phui-timeline-extra',
+          'class' => implode(' ', $fill_classes),
         ),
-        phutil_implode_html(" \xC2\xB7 ", $extra));
-    } else {
-      $extra = null;
+        $icon);
     }
 
-    if ($title !== null || $extra) {
-      $title_classes = array();
-      $title_classes[] = 'phui-timeline-title';
-
-      $icon = null;
-      if ($this->icon || $force_icon) {
-        $title_classes[] = 'phui-timeline-title-with-icon';
+    $token = null;
+    if ($this->token) {
+      $token = id(new PHUIIconView())
+        ->addClass('phui-timeline-token')
+        ->setSpriteSheet(PHUIIconView::SPRITE_TOKENS)
+        ->setSpriteIcon($this->token);
+      if ($this->tokenRemoved) {
+        $token->addClass('strikethrough');
       }
-
-      if ($this->icon) {
-        $fill_classes = array();
-        $fill_classes[] = 'phui-timeline-icon-fill';
-        if ($this->color) {
-          $fill_classes[] = 'phui-timeline-icon-fill-'.$this->color;
-        }
-
-        $icon = phutil_tag(
-          'span',
-          array(
-            'class' => implode(' ', $fill_classes),
-          ),
-          phutil_tag(
-            'span',
-            array(
-              'class' => 'phui-timeline-icon sprite-icons '.
-                         'icons-'.$this->icon.'-white',
-            ),
-            ''));
-      }
-
-      $title = phutil_tag(
-        'div',
-        array(
-          'class' => implode(' ', $title_classes),
-        ),
-        array($icon, $title, $extra));
     }
+
+    $title = phutil_tag(
+      'div',
+      array(
+        'class' => implode(' ', $title_classes),
+      ),
+      array($icon, $token, $title, $extra));
 
     return $title;
   }
@@ -189,25 +266,94 @@ final class PHUITimelineEventView extends AphrontView {
     $events = array_select_keys($events, $icon_keys) + $events;
     $force_icon = (bool)$icon_keys;
 
+    $menu = null;
+    $items = array();
+    $has_menu = false;
+    if (!$this->getIsPreview() && !$this->getHideCommentOptions()) {
+      foreach ($this->getEventGroup() as $event) {
+        $items[] = $event->getMenuItems($this->anchor);
+        if ($event->hasChildren()) {
+          $has_menu = true;
+        }
+      }
+      $items = array_mergev($items);
+    }
+
+    if ($items || $has_menu) {
+      $icon = id(new PHUIIconView())
+        ->setIconFont('fa-caret-down');
+      $aural = javelin_tag(
+        'span',
+        array(
+          'aural' => true,
+        ),
+        pht('Comment Actions'));
+
+      if ($items) {
+        $sigil = 'phui-dropdown-menu';
+        Javelin::initBehavior('phui-dropdown-menu');
+      } else {
+        $sigil = null;
+      }
+
+      $action_list = id(new PhabricatorActionListView())
+        ->setUser($this->getUser());
+      foreach ($items as $item) {
+        $action_list->addAction($item);
+      }
+
+      $menu = javelin_tag(
+        $items ? 'a' : 'span',
+        array(
+          'href' => '#',
+          'class' => 'phui-timeline-menu',
+          'sigil' => $sigil,
+          'aria-haspopup' => 'true',
+          'aria-expanded' => 'false',
+          'meta' => array(
+            'items' => hsprintf('%s', $action_list),
+          ),
+        ),
+        array(
+          $aural,
+          $icon,
+        ));
+
+      $has_menu = true;
+    }
+
+    // Render "extra" information (timestamp, etc).
+    $extra = $this->renderExtra($events);
+
     $group_titles = array();
+    $group_items = array();
     $group_children = array();
-    $is_first_event = true;
     foreach ($events as $event) {
-      $group_titles[] = $event->renderEventTitle($is_first_event, $force_icon);
-      $is_first_event = false;
+      if ($event->shouldRenderEventTitle()) {
+        $group_titles[] = $event->renderEventTitle(
+          $force_icon,
+          $has_menu,
+          $extra);
+
+        // Don't render this information more than once.
+        $extra = null;
+      }
+
       if ($event->hasChildren()) {
         $group_children[] = $event->renderChildren();
       }
     }
 
+    $image_uri = $this->userHandle->getImageURI();
+
     $wedge = phutil_tag(
       'div',
       array(
         'class' => 'phui-timeline-wedge phui-timeline-border',
+        'style' => (nonempty($image_uri)) ? '' : 'display: none;',
       ),
       '');
 
-    $image_uri = $this->userHandle->getImageURI();
     $image = phutil_tag(
       'div',
       array(
@@ -230,6 +376,7 @@ final class PHUITimelineEventView extends AphrontView {
         ),
         array(
           $group_titles,
+          $menu,
           phutil_tag(
             'div',
             array(
@@ -280,97 +427,201 @@ final class PHUITimelineEventView extends AphrontView {
       );
     }
 
-    return javelin_tag(
-      'div',
-      array(
-        'class' => implode(' ', $outer_classes),
-        'id' => $this->anchor ? 'anchor-'.$this->anchor : null,
-        'sigil' => $sigil,
-        'meta' => $meta,
-      ),
-      phutil_tag(
+    $major_event = null;
+    if ($this->reallyMajorEvent) {
+      $major_event = phutil_tag(
         'div',
         array(
-          'class' => implode(' ', $classes),
+          'class' => 'phui-timeline-event-view '.
+                     'phui-timeline-spacer '.
+                     'phui-timeline-spacer-bold',
+          '',
+        ));
+    }
+
+    return array(
+      javelin_tag(
+        'div',
+        array(
+          'class' => implode(' ', $outer_classes),
+          'id' => $this->anchor ? 'anchor-'.$this->anchor : null,
+          'sigil' => $sigil,
+          'meta' => $meta,
         ),
-        $content));
+        phutil_tag(
+          'div',
+          array(
+            'class' => implode(' ', $classes),
+          ),
+          $content)),
+      $major_event,
+    );
   }
 
-  private function renderExtra($is_first_extra) {
+  private function renderExtra(array $events) {
     $extra = array();
 
     if ($this->getIsPreview()) {
       $extra[] = pht('PREVIEW');
     } else {
-      $xaction_phid = $this->getTransactionPHID();
-
-      if ($this->getIsEdited()) {
-        $extra[] = javelin_tag(
-          'a',
-          array(
-            'href'  => '/transactions/history/'.$xaction_phid.'/',
-            'sigil' => 'workflow',
-          ),
-          pht('Edited'));
+      foreach ($events as $event) {
+        if ($event->getIsEdited()) {
+          $extra[] = pht('Edited');
+          break;
+        }
       }
 
-      if ($this->getIsEditable()) {
-        $extra[] = javelin_tag(
-          'a',
-          array(
-            'href'  => '/transactions/edit/'.$xaction_phid.'/',
-            'sigil' => 'workflow transaction-edit',
-          ),
-          pht('Edit'));
+      $source = $this->getContentSource();
+      if ($source) {
+        $extra[] = id(new PhabricatorContentSourceView())
+          ->setContentSource($source)
+          ->setUser($this->getUser())
+          ->render();
       }
 
-      if ($is_first_extra) {
-        $source = $this->getContentSource();
-        if ($source) {
-          $extra[] = id(new PhabricatorContentSourceView())
-            ->setContentSource($source)
-            ->setUser($this->getUser())
+      $date_created = null;
+      foreach ($events as $event) {
+        if ($event->getDateCreated()) {
+          if ($date_created === null) {
+            $date_created = $event->getDateCreated();
+          } else {
+            $date_created = min($event->getDateCreated(), $date_created);
+          }
+        }
+      }
+
+      if ($date_created) {
+        $date = phabricator_datetime(
+          $date_created,
+          $this->getUser());
+        if ($this->anchor) {
+          Javelin::initBehavior('phabricator-watch-anchor');
+
+          $anchor = id(new PhabricatorAnchorView())
+            ->setAnchorName($this->anchor)
             ->render();
+
+          $date = array(
+            $anchor,
+            phutil_tag(
+              'a',
+              array(
+                'href' => '#'.$this->anchor,
+              ),
+              $date),
+          );
         }
+        $extra[] = $date;
+      }
+    }
 
-        $date_created = null;
-        foreach ($this->getEventGroup() as $event) {
-          if ($event->getDateCreated()) {
-            if ($date_created === null) {
-              $date_created = $event->getDateCreated();
-            } else {
-              $date_created = min($event->getDateCreated(), $date_created);
-            }
-          }
+    $extra = javelin_tag(
+      'span',
+      array(
+        'class' => 'phui-timeline-extra',
+      ),
+      phutil_implode_html(
+        javelin_tag(
+          'span',
+          array(
+            'aural' => false,
+          ),
+          self::DELIMITER),
+        $extra));
+
+    return $extra;
+  }
+
+  private function getMenuItems($anchor) {
+    $xaction_phid = $this->getTransactionPHID();
+
+    $items = array();
+
+    if ($this->getIsEditable()) {
+      $items[] = id(new PhabricatorActionView())
+        ->setIcon('fa-pencil')
+        ->setHref('/transactions/edit/'.$xaction_phid.'/')
+        ->setName(pht('Edit Comment'))
+        ->addSigil('transaction-edit')
+        ->setMetadata(
+          array(
+            'anchor' => $anchor,
+          ));
+    }
+
+    if ($this->getQuoteTargetID()) {
+      $ref = null;
+      if ($this->getQuoteRef()) {
+        $ref = $this->getQuoteRef();
+        if ($anchor) {
+          $ref = $ref.'#'.$anchor;
         }
+      }
 
-        if ($date_created) {
-          $date = phabricator_datetime(
-            $this->getDateCreated(),
-            $this->getUser());
-          if ($this->anchor) {
-            Javelin::initBehavior('phabricator-watch-anchor');
+      $items[] = id(new PhabricatorActionView())
+        ->setIcon('fa-quote-left')
+        ->setHref('#')
+        ->setName(pht('Quote'))
+        ->addSigil('transaction-quote')
+        ->setMetadata(
+          array(
+            'targetID' => $this->getQuoteTargetID(),
+            'uri' => '/transactions/quote/'.$xaction_phid.'/',
+            'ref' => $ref,
+          ));
+    }
 
-            $anchor = id(new PhabricatorAnchorView())
-              ->setAnchorName($this->anchor)
-              ->render();
+    if ($this->getIsNormalComment()) {
+      $items[] = id(new PhabricatorActionView())
+        ->setIcon('fa-cutlery')
+        ->setHref('/transactions/raw/'.$xaction_phid.'/')
+        ->setName(pht('View Raw'))
+        ->addSigil('transaction-raw')
+        ->setMetadata(
+          array(
+            'anchor' => $anchor,
+          ));
 
-            $date = array(
-              $anchor,
-              phutil_tag(
-                'a',
-                array(
-                  'href' => '#'.$this->anchor,
-                ),
-                $date),
-            );
-          }
-          $extra[] = $date;
+      $content_source = $this->getContentSource();
+      $source_email = PhabricatorContentSource::SOURCE_EMAIL;
+      if ($content_source->getSource() == $source_email) {
+        $source_id = $content_source->getParam('id');
+        if ($source_id) {
+          $items[] = id(new PhabricatorActionView())
+            ->setIcon('fa-envelope-o')
+            ->setHref('/transactions/raw/'.$xaction_phid.'/?email')
+            ->setName(pht('View Email Body'))
+            ->addSigil('transaction-raw')
+            ->setMetadata(
+              array(
+                'anchor' => $anchor,
+              ));
         }
       }
     }
 
-    return $extra;
+    if ($this->getIsRemovable()) {
+      $items[] = id(new PhabricatorActionView())
+        ->setIcon('fa-times')
+        ->setHref('/transactions/remove/'.$xaction_phid.'/')
+        ->setName(pht('Remove Comment'))
+        ->addSigil('transaction-remove')
+        ->setMetadata(
+          array(
+            'anchor' => $anchor,
+          ));
+
+    }
+
+    if ($this->getIsEdited()) {
+      $items[] = id(new PhabricatorActionView())
+        ->setIcon('fa-list')
+        ->setHref('/transactions/history/'.$xaction_phid.'/')
+        ->setName(pht('View Edit History'))
+        ->setWorkflow(true);
+    }
+
+    return $items;
   }
 
 }

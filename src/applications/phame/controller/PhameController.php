@@ -1,8 +1,5 @@
 <?php
 
-/**
- * @group phame
- */
 abstract class PhameController extends PhabricatorController {
 
   protected function renderSideNavFilterView() {
@@ -32,20 +29,28 @@ abstract class PhameController extends PhabricatorController {
 
   protected function renderPostList(
     array $posts,
-    PhabricatorUser $user,
+    PhabricatorUser $viewer,
     $nodata) {
     assert_instances_of($posts, 'PhamePost');
 
-    $stories = array();
-
+    $handle_phids = array();
     foreach ($posts as $post) {
-      $blogger = $this->getHandle($post->getBloggerPHID())->renderLink();
-      $bloggerURI = $this->getHandle($post->getBloggerPHID())->getURI();
-      $bloggerImage = $this->getHandle($post->getBloggerPHID())->getImageURI();
+      $handle_phids[] = $post->getBloggerPHID();
+      if ($post->getBlog()) {
+        $handle_phids[] = $post->getBlog()->getPHID();
+      }
+    }
+    $handles = $viewer->loadHandles($handle_phids);
+
+    $stories = array();
+    foreach ($posts as $post) {
+      $blogger = $handles[$post->getBloggerPHID()]->renderLink();
+      $blogger_uri = $handles[$post->getBloggerPHID()]->getURI();
+      $blogger_image = $handles[$post->getBloggerPHID()]->getImageURI();
 
       $blog = null;
       if ($post->getBlog()) {
-        $blog = $this->getHandle($post->getBlog()->getPHID())->renderLink();
+        $blog = $handles[$post->getBlog()->getPHID()]->renderLink();
       }
 
       $phame_post = '';
@@ -59,12 +64,16 @@ abstract class PhameController extends PhabricatorController {
 
       $blogger = phutil_tag('strong', array(), $blogger);
       if ($post->isDraft()) {
-        $title = pht('%s drafted a blog post on %s.',
-          $blogger, $blog);
+        $title = pht(
+          '%s drafted a blog post on %s.',
+          $blogger,
+          $blog);
         $title = phutil_tag('em', array(), $title);
       } else {
-        $title = pht('%s wrote a blog post on %s.',
-          $blogger, $blog);
+        $title = pht(
+          '%s wrote a blog post on %s.',
+          $blogger,
+          $blog);
       }
 
       $item = id(new PHUIObjectItemView())
@@ -74,16 +83,33 @@ abstract class PhameController extends PhabricatorController {
 
       $story = id(new PHUIFeedStoryView())
         ->setTitle($title)
-        ->setImage($bloggerImage)
-        ->setImageHref($bloggerURI)
-        ->setAppIcon('phame-dark')
-        ->setUser($user)
+        ->setImage($blogger_image)
+        ->setImageHref($blogger_uri)
+        ->setAppIcon('fa-star')
+        ->setUser($viewer)
         ->setPontification($phame_post, $phame_title);
+
+      if (PhabricatorPolicyFilter::hasCapability(
+        $viewer,
+        $post,
+        PhabricatorPolicyCapability::CAN_EDIT)) {
+
+        $story->addAction(id(new PHUIIconView())
+          ->setHref($this->getApplicationURI('post/edit/'.$post->getID().'/'))
+          ->setIconFont('fa-pencil'));
+      }
 
       if ($post->getDatePublished()) {
         $story->setEpoch($post->getDatePublished());
       }
+
       $stories[] = $story;
+    }
+
+    if (empty($stories)) {
+      return id(new PHUIInfoView())
+        ->setSeverity(PHUIInfoView::SEVERITY_NODATA)
+        ->appendChild($nodata);
     }
 
     return $stories;
@@ -99,12 +125,12 @@ abstract class PhameController extends PhabricatorController {
       id(new PHUIListItemView())
         ->setName(pht('New Blog'))
         ->setHref($this->getApplicationURI('/blog/new'))
-        ->setIcon('create'));
+        ->setIcon('fa-plus-square'));
     $crumbs->addAction(
       id(new PHUIListItemView())
         ->setName(pht('New Post'))
         ->setHref($this->getApplicationURI('/post/new'))
-        ->setIcon('new'));
+        ->setIcon('fa-pencil'));
     return $crumbs;
   }
 }

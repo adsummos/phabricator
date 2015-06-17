@@ -1,8 +1,5 @@
 <?php
 
-/**
- * @group pholio
- */
 final class PholioImageQuery
   extends PhabricatorCursorPagedPolicyAwareQuery {
 
@@ -64,7 +61,7 @@ final class PholioImageQuery
     return $images;
   }
 
-  private function buildWhereClause(AphrontDatabaseConnection $conn_r) {
+  protected function buildWhereClause(AphrontDatabaseConnection $conn_r) {
     $where = array();
 
     $where[] = $this->buildPagingClause($conn_r);
@@ -162,7 +159,7 @@ final class PholioImageQuery
   }
 
   public function getQueryApplicationClass() {
-    return 'PhabricatorApplicationPholio';
+    return 'PhabricatorPholioApplication';
   }
 
 }

@@ -2,7 +2,7 @@
 
 /**
  * The default one-for-all hovercard. We may derive from this one to create
- * more specialized ones
+ * more specialized ones.
  */
 final class PhabricatorHovercardView extends AphrontView {
 
@@ -10,6 +10,7 @@ final class PhabricatorHovercardView extends AphrontView {
    * @var PhabricatorObjectHandle
    */
   private $handle;
+  private $object;
 
   private $title = array();
   private $detail;
@@ -17,11 +18,19 @@ final class PhabricatorHovercardView extends AphrontView {
   private $fields = array();
   private $actions = array();
 
-  private $color = 'blue';
-
+  private $color = 'lightblue';
   public function setObjectHandle(PhabricatorObjectHandle $handle) {
     $this->handle = $handle;
     return $this;
+  }
+
+  public function setObject($object) {
+    $this->object = $object;
+    return $this;
+  }
+
+  public function getObject() {
+    return $this->object;
   }
 
   public function setTitle($title) {
@@ -63,18 +72,25 @@ final class PhabricatorHovercardView extends AphrontView {
 
   public function render() {
     if (!$this->handle) {
-      throw new Exception("Call setObjectHandle() before calling render()!");
+      throw new PhutilInvalidStateException('setObjectHandle');
     }
 
+    $viewer = $this->getUser();
     $handle = $this->handle;
 
-    require_celerity_resource("phabricator-hovercard-view-css");
+    require_celerity_resource('phabricator-hovercard-view-css');
 
-    $title = pht("%s: %s",
-      $handle->getTypeName(),
-      $this->title ? $this->title : $handle->getName());
+    $title = array(
+      id(new PHUISpacesNamespaceContextView())
+        ->setUser($viewer)
+        ->setObject($this->getObject()),
+      pht(
+        '%s: %s',
+        $handle->getTypeName(),
+        $this->title ? $this->title : $handle->getName()),
+    );
 
-    $header = new PhabricatorActionHeaderView();
+    $header = new PHUIActionHeaderView();
     $header->setHeaderColor($this->color);
     $header->setHeaderTitle($title);
     if ($this->tags) {
@@ -109,11 +125,22 @@ final class PhabricatorHovercardView extends AphrontView {
       $body = phutil_tag(
         'div',
         array(
-          'class' => 'profile-header-picture-frame',
-          'style' => 'background-image: url('.$handle->getImageURI().');',
+          'class' => 'phabricator-hovercard-body-image',
         ),
-        '')
-        ->appendHTML($body);
+        phutil_tag(
+          'div',
+          array(
+            'class' => 'profile-header-picture-frame',
+            'style' => 'background-image: url('.$handle->getImageURI().');',
+          ),
+          ''))
+      ->appendHTML(
+        phutil_tag(
+          'div',
+          array(
+            'class' => 'phabricator-hovercard-body-details',
+          ),
+          $body));
     }
 
     $buttons = array();
@@ -149,7 +176,7 @@ final class PhabricatorHovercardView extends AphrontView {
       'phabricator-hovercard-container',
       array(
         phutil_tag_div('phabricator-hovercard-head', $header),
-        phutil_tag_div('phabricator-hovercard-body', $body),
+        phutil_tag_div('phabricator-hovercard-body grouped', $body),
         $tail,
       ));
 

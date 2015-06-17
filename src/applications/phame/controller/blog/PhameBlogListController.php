@@ -1,22 +1,13 @@
 <?php
 
-/**
- * @group phame
- */
 final class PhameBlogListController extends PhameController {
 
-  private $filter;
-
-  public function willProcessRequest(array $data) {
-    $this->filter = idx($data, 'filter');
-  }
-
-  public function processRequest() {
-    $request = $this->getRequest();
+  public function handleRequest(AphrontRequest $request) {
     $user = $request->getUser();
 
     $nav = $this->renderSideNavFilterView(null);
-    $filter = $nav->selectFilter('blog/'.$this->filter, 'blog/user');
+    $filter = $request->getURIData('filter');
+    $filter = $nav->selectFilter('blog/'.$filter, 'blog/user');
 
     $query = id(new PhameBlogQuery())
       ->setViewer($user);
@@ -35,7 +26,7 @@ final class PhameBlogListController extends PhameController {
           ));
         break;
       default:
-        throw new Exception("Unknown filter '{$filter}'!");
+        throw new Exception(pht("Unknown filter '%s'!", $filter));
     }
 
     $pager = id(new AphrontPagerView())
@@ -60,7 +51,6 @@ final class PhameBlogListController extends PhameController {
       $nav,
       array(
         'title' => $title,
-        'device' => true,
       ));
   }
 

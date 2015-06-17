@@ -48,7 +48,7 @@ final class PhluxEditController extends PhluxController {
         if (!strlen($key)) {
           $errors[] = pht('Variable key is required.');
           $e_key = pht('Required');
-        } else if (!preg_match('/^[a-z0-9.-]+$/', $key)) {
+        } else if (!preg_match('/^[a-z0-9.-]+\z/', $key)) {
           $errors[] = pht(
             'Variable key "%s" must contain only lowercase letters, digits, '.
             'period, and hyphen.',
@@ -92,7 +92,7 @@ final class PhluxEditController extends PhluxController {
           $editor->applyTransactions($var, $xactions);
           $view_uri = $this->getApplicationURI('/view/'.$key.'/');
           return id(new AphrontRedirectResponse())->setURI($view_uri);
-        } catch (AphrontQueryDuplicateKeyException $ex) {
+        } catch (AphrontDuplicateKeyQueryException $ex) {
           $e_key = pht('Not Unique');
           $errors[] = pht('Variable key must be unique.');
         }
@@ -177,7 +177,6 @@ final class PhluxEditController extends PhluxController {
       ),
       array(
         'title' => $title,
-        'device' => true,
       ));
   }
 

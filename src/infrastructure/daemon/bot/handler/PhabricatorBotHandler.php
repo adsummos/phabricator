@@ -3,10 +3,8 @@
 /**
  * Responds to IRC messages. You plug a bunch of these into a
  * @{class:PhabricatorBot} to give it special behavior.
- *
- * @group irc
  */
-abstract class PhabricatorBotHandler {
+abstract class PhabricatorBotHandler extends Phobject {
 
   private $bot;
 
@@ -50,7 +48,7 @@ abstract class PhabricatorBotHandler {
   public function replyTo(PhabricatorBotMessage $original_message, $body) {
     if ($original_message->getCommand() != 'MESSAGE') {
       throw new Exception(
-        "Handler is trying to reply to something which is not a message!");
+        pht('Handler is trying to reply to something which is not a message!'));
     }
 
     $reply = id(new PhabricatorBotMessage())
@@ -70,4 +68,5 @@ abstract class PhabricatorBotHandler {
 
     return $this->writeMessage($reply);
   }
+
 }

@@ -3,12 +3,15 @@
 final class OwnersPackageReplyHandler extends PhabricatorMailReplyHandler {
   public function validateMailReceiver($mail_receiver) {
     if (!($mail_receiver instanceof PhabricatorOwnersPackage)) {
-      throw new Exception("Receiver is not a PhabricatorOwnersPackage!");
+      throw new Exception(
+        pht(
+          'Receiver is not a %s!',
+          'PhabricatorOwnersPackage'));
     }
   }
 
   public function getPrivateReplyHandlerEmailAddress(
-    PhabricatorObjectHandle $handle) {
+    PhabricatorUser $user) {
     return null;
   }
 
@@ -16,17 +19,7 @@ final class OwnersPackageReplyHandler extends PhabricatorMailReplyHandler {
     return null;
   }
 
-  public function getReplyHandlerDomain() {
-    return null;
-  }
-
-  public function getReplyHandlerInstructions() {
-    return null;
-  }
-
   protected function receiveEmail(PhabricatorMetaMTAReceivedMail $mail) {
     return;
   }
 }
-
-

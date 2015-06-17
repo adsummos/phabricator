@@ -17,14 +17,14 @@ abstract class PonderController extends PhabricatorController {
     return $nav;
   }
 
-  public function buildApplicationCrumbs() {
+  protected function buildApplicationCrumbs() {
     $crumbs = parent::buildApplicationCrumbs();
     $crumbs
       ->addAction(
         id(new PHUIListItemView())
           ->setName(pht('Create Question'))
           ->setHref('/ponder/question/edit/')
-          ->setIcon('create'));
+          ->setIcon('fa-plus-square'));
 
     return $crumbs;
   }

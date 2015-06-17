@@ -6,9 +6,7 @@
  */
 
 JX.behavior('test-payment-form', function(config) {
-  var ccform = new JX.PhortuneCreditCardForm(JX.$(config.formID), onsubmit);
-
-  function onsubmit(card_data) {
+  function onsubmit() {
     onresponse();
   }
 
@@ -16,4 +14,5 @@ JX.behavior('test-payment-form', function(config) {
     ccform.submitForm([], {test: true});
   }
 
+  var ccform = new JX.PhortuneCreditCardForm(JX.$(config.formID), onsubmit);
 });

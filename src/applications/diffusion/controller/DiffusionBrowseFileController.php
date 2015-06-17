@@ -4,10 +4,11 @@ final class DiffusionBrowseFileController extends DiffusionBrowseController {
 
   private $lintCommit;
   private $lintMessages;
+  private $coverage;
 
-  public function processRequest() {
-    $request = $this->getRequest();
+  protected function processDiffusionRequest(AphrontRequest $request) {
     $drequest = $this->getDiffusionRequest();
+    $viewer = $request->getUser();
 
     $before = $request->getStr('before');
     if ($before) {
@@ -16,7 +17,7 @@ final class DiffusionBrowseFileController extends DiffusionBrowseController {
 
     $path = $drequest->getPath();
 
-    $preferences = $request->getUser()->loadPreferences();
+    $preferences = $viewer->loadPreferences();
 
     $show_blame = $request->getBool(
       'blame',
@@ -30,7 +31,7 @@ final class DiffusionBrowseFileController extends DiffusionBrowseController {
         true));
 
     $view = $request->getStr('view');
-    if ($request->isFormPost() && $view != 'raw') {
+    if ($request->isFormPost() && $view != 'raw' && $viewer->isLoggedIn()) {
       $preferences->setPreference(
         PhabricatorUserPreferences::PREFERENCE_DIFFUSION_BLAME,
         $show_blame);
@@ -68,6 +69,7 @@ final class DiffusionBrowseFileController extends DiffusionBrowseController {
     }
 
     $this->loadLintMessages();
+    $this->coverage = $drequest->loadCoverage();
 
     $binary_uri = null;
     if (ArcanistDiffUtils::isHeuristicBinaryFile($data)) {
@@ -104,8 +106,7 @@ final class DiffusionBrowseFileController extends DiffusionBrowseController {
       $view,
       $drequest,
       $show_blame,
-      $show_color,
-      $binary_uri);
+      $show_color);
 
     $properties = $this->buildPropertyView($drequest, $action_list);
     $object_box = id(new PHUIObjectBoxView())
@@ -117,19 +118,21 @@ final class DiffusionBrowseFileController extends DiffusionBrowseController {
 
     $follow  = $request->getStr('follow');
     if ($follow) {
-      $notice = new AphrontErrorView();
-      $notice->setSeverity(AphrontErrorView::SEVERITY_WARNING);
+      $notice = new PHUIInfoView();
+      $notice->setSeverity(PHUIInfoView::SEVERITY_WARNING);
       $notice->setTitle(pht('Unable to Continue'));
       switch ($follow) {
         case 'first':
           $notice->appendChild(
-            pht("Unable to continue tracing the history of this file because ".
-            "this commit is the first commit in the repository."));
+            pht(
+              'Unable to continue tracing the history of this file because '.
+              'this commit is the first commit in the repository.'));
           break;
         case 'created':
           $notice->appendChild(
-            pht("Unable to continue tracing the history of this file because ".
-            "this commit created the file."));
+            pht(
+              'Unable to continue tracing the history of this file because '.
+              'this commit created the file.'));
           break;
       }
       $content[] = $notice;
@@ -137,11 +140,12 @@ final class DiffusionBrowseFileController extends DiffusionBrowseController {
 
     $renamed = $request->getStr('renamed');
     if ($renamed) {
-      $notice = new AphrontErrorView();
-      $notice->setSeverity(AphrontErrorView::SEVERITY_NOTICE);
+      $notice = new PHUIInfoView();
+      $notice->setSeverity(PHUIInfoView::SEVERITY_NOTICE);
       $notice->setTitle(pht('File Renamed'));
       $notice->appendChild(
-        pht("File history passes through a rename from '%s' to '%s'.",
+        pht(
+          "File history passes through a rename from '%s' to '%s'.",
           $drequest->getPath(), $renamed));
       $content[] = $notice;
     }
@@ -208,7 +212,7 @@ final class DiffusionBrowseFileController extends DiffusionBrowseController {
 
     if (!$show_color) {
       $style =
-        "margin: 1em 2em; width: 90%; height: 80em; font-family: monospace";
+        'border: none; width: 100%; height: 80em; font-family: monospace';
       if (!$show_blame) {
         $corpus = phutil_tag(
           'textarea',
@@ -226,7 +230,7 @@ final class DiffusionBrowseFileController extends DiffusionBrowseController {
           $rev = $rev_list[$k];
           $author = $blame_dict[$rev]['author'];
           $rows[] =
-            sprintf("%-10s %-20s %s", substr($rev, 0, 7), $author, $line);
+            sprintf('%-10s %-20s %s', substr($rev, 0, 7), $author, $line);
         }
 
         $corpus = phutil_tag(
@@ -254,7 +258,7 @@ final class DiffusionBrowseFileController extends DiffusionBrowseController {
       $corpus_table = javelin_tag(
         'table',
         array(
-          'class' => "diffusion-source remarkup-code PhabricatorMonospaced",
+          'class' => 'diffusion-source remarkup-code PhabricatorMonospaced',
           'sigil' => 'phabricator-source',
         ),
         $rows);
@@ -265,32 +269,35 @@ final class DiffusionBrowseFileController extends DiffusionBrowseController {
 
       $id = celerity_generate_unique_node_id();
 
-      $projects = $drequest->loadArcanistProjects();
-      $langs = array();
-      foreach ($projects as $project) {
-        $ls = $project->getSymbolIndexLanguages();
-        if (!$ls) {
-          continue;
-        }
-        $dep_projects = $project->getSymbolIndexProjects();
-        $dep_projects[] = $project->getPHID();
-        foreach ($ls as $lang) {
-          if (!isset($langs[$lang])) {
-            $langs[$lang] = array();
-          }
-          $langs[$lang] += $dep_projects + array($project);
+      $repo = $drequest->getRepository();
+      $symbol_repos = nonempty($repo->getSymbolSources(), array());
+      $symbol_repos[] = $repo;
+
+      $lang = last(explode('.', $drequest->getPath()));
+      $repo_languages = $repo->getSymbolLanguages();
+      $repo_languages = nonempty($repo_languages, array());
+      $repo_languages = array_fill_keys($repo_languages, true);
+
+      $needs_symbols = true;
+      if ($repo_languages && $symbol_repos) {
+        $have_symbols = id(new DiffusionSymbolQuery())
+            ->existsSymbolsInRepository($repo->getPHID());
+        if (!$have_symbols) {
+          $needs_symbols = false;
         }
       }
 
-      $lang = last(explode('.', $drequest->getPath()));
+      if ($needs_symbols && $repo_languages) {
+        $needs_symbols = isset($repo_languages[$lang]);
+      }
 
-      if (isset($langs[$lang])) {
+      if ($needs_symbols) {
         Javelin::initBehavior(
           'repository-crossreference',
           array(
             'container' => $id,
             'lang' => $lang,
-            'projects' => $langs[$lang],
+            'repositories' => $symbol_repos,
           ));
       }
 
@@ -301,12 +308,19 @@ final class DiffusionBrowseFileController extends DiffusionBrowseController {
         ),
         $corpus_table);
 
-      $corpus = id(new PHUIObjectBoxView())
-        ->setHeaderText('File Contents')
-        ->appendChild($corpus);
-
       Javelin::initBehavior('load-blame', array('id' => $id));
     }
+
+    $edit = $this->renderEditButton();
+    $file = $this->renderFileButton();
+    $header = id(new PHUIHeaderView())
+      ->setHeader(pht('File Contents'))
+      ->addActionLink($edit)
+      ->addActionLink($file);
+
+    $corpus = id(new PHUIObjectBoxView())
+      ->setHeader($header)
+      ->appendChild($corpus);
 
     return $corpus;
   }
@@ -315,8 +329,7 @@ final class DiffusionBrowseFileController extends DiffusionBrowseController {
     PhabricatorActionListView $view,
     DiffusionRequest $drequest,
     $show_blame,
-    $show_color,
-    $binary_uri) {
+    $show_color) {
 
     $viewer = $this->getRequest()->getUser();
     $base_uri = $this->getRequest()->getRequestURI();
@@ -329,15 +342,15 @@ final class DiffusionBrowseFileController extends DiffusionBrowseController {
             array(
               'action' => 'change',
             )))
-        ->setIcon('new'));
+        ->setIcon('fa-backward'));
 
     if ($show_blame) {
       $blame_text = pht('Disable Blame');
-      $blame_icon = 'blame-grey';
+      $blame_icon = 'fa-exclamation-circle lightgreytext';
       $blame_value = 0;
     } else {
       $blame_text = pht('Enable Blame');
-      $blame_icon = 'blame';
+      $blame_icon = 'fa-exclamation-circle';
       $blame_value = 1;
     }
 
@@ -347,16 +360,15 @@ final class DiffusionBrowseFileController extends DiffusionBrowseController {
         ->setHref($base_uri->alter('blame', $blame_value))
         ->setIcon($blame_icon)
         ->setUser($viewer)
-        ->setRenderAsForm(true));
-
+        ->setRenderAsForm($viewer->isLoggedIn()));
 
     if ($show_color) {
       $highlight_text = pht('Disable Highlighting');
-      $highlight_icon = 'highlight-grey';
+      $highlight_icon = 'fa-star-o grey';
       $highlight_value = 0;
     } else {
       $highlight_text = pht('Enable Highlighting');
-      $highlight_icon = 'highlight';
+      $highlight_icon = 'fa-star';
       $highlight_value = 1;
     }
 
@@ -366,7 +378,7 @@ final class DiffusionBrowseFileController extends DiffusionBrowseController {
         ->setHref($base_uri->alter('color', $highlight_value))
         ->setIcon($highlight_icon)
         ->setUser($viewer)
-        ->setRenderAsForm(true));
+        ->setRenderAsForm($viewer->isLoggedIn()));
 
     $href = null;
     if ($this->getRequest()->getStr('lint') !== null) {
@@ -389,29 +401,13 @@ final class DiffusionBrowseFileController extends DiffusionBrowseController {
       id(new PhabricatorActionView())
         ->setName($lint_text)
         ->setHref($href)
-        ->setIcon('warning')
+        ->setIcon('fa-exclamation-triangle')
         ->setDisabled(!$href));
-
-    if ($binary_uri) {
-      $view->addAction(
-        id(new PhabricatorActionView())
-          ->setName(pht('Download Raw File'))
-          ->setHref($binary_uri)
-          ->setIcon('download'));
-    } else {
-      $view->addAction(
-        id(new PhabricatorActionView())
-          ->setName(pht('View Raw File'))
-          ->setHref($base_uri->alter('view', 'raw'))
-          ->setIcon('file'));
-    }
-
-    $view->addAction($this->createEditAction());
 
     return $view;
   }
 
-  private function createEditAction() {
+  private function renderEditButton() {
     $request = $this->getRequest();
     $user = $request->getUser();
 
@@ -423,16 +419,47 @@ final class DiffusionBrowseFileController extends DiffusionBrowseController {
 
     $callsign = $repository->getCallsign();
     $editor_link = $user->loadEditorLink($path, $line, $callsign);
+    $template = $user->loadEditorLink($path, '%l', $callsign);
 
-    $action = id(new PhabricatorActionView())
-      ->setName(pht('Open in Editor'))
-      ->setIcon('edit');
+    $icon_edit = id(new PHUIIconView())
+      ->setIconFont('fa-pencil');
+    $button = id(new PHUIButtonView())
+      ->setTag('a')
+      ->setText(pht('Open in Editor'))
+      ->setHref($editor_link)
+      ->setIcon($icon_edit)
+      ->setID('editor_link')
+      ->setMetadata(array('link_template' => $template))
+      ->setDisabled(!$editor_link);
 
-    $action->setHref($editor_link);
-    $action->setDisabled(!$editor_link);
-
-    return $action;
+    return $button;
   }
+
+  private function renderFileButton($file_uri = null) {
+
+    $base_uri = $this->getRequest()->getRequestURI();
+
+    if ($file_uri) {
+      $text = pht('Download Raw File');
+      $href = $file_uri;
+      $icon = 'fa-download';
+    } else {
+      $text = pht('View Raw File');
+      $href = $base_uri->alter('view', 'raw');
+      $icon = 'fa-file-text';
+    }
+
+    $iconview = id(new PHUIIconView())
+      ->setIconFont($icon);
+    $button = id(new PHUIButtonView())
+      ->setTag('a')
+      ->setText($text)
+      ->setHref($href)
+      ->setIcon($iconview);
+
+    return $button;
+  }
+
 
   private function buildDisplayRows(
     array $text_list,
@@ -520,11 +547,7 @@ final class DiffusionBrowseFileController extends DiffusionBrowseController {
           if ($author_phid && $handles[$author_phid]) {
             $author_link = $handles[$author_phid]->renderLink();
           } else {
-            $author_link = phutil_tag(
-              'span',
-              array(
-              ),
-              $blame['author']);
+            $author_link = $blame['author'];
           }
           $display_line['author'] = $author_link;
 
@@ -594,7 +617,6 @@ final class DiffusionBrowseFileController extends DiffusionBrowseController {
 
       foreach ($this->lintMessages as $message) {
         $inline = id(new PhabricatorAuditInlineComment())
-          ->setID($message['id'])
           ->setSyntheticAuthor(
             ArcanistLintSeverity::getStringForSeverity($message['severity']).
             ' '.$message['code'].' ('.$message['name'].')')
@@ -613,7 +635,8 @@ final class DiffusionBrowseFileController extends DiffusionBrowseController {
 
     $rows = $this->renderInlines(
       idx($inlines, 0, array()),
-      ($show_blame),
+      $show_blame,
+      (bool)$this->coverage,
       $engine);
 
     foreach ($display as $line) {
@@ -665,7 +688,10 @@ final class DiffusionBrowseFileController extends DiffusionBrowseController {
                 'size'  => 600,
               ),
             ),
-            phutil_utf8_shorten($line['commit'], 9, ''));
+            id(new PhutilUTF8StringTruncator())
+            ->setMaximumGlyphs(9)
+            ->setTerminator('')
+            ->truncateString($line['commit']));
 
           $revision_id = null;
           if (idx($commits, $commit)) {
@@ -777,6 +803,24 @@ final class DiffusionBrowseFileController extends DiffusionBrowseController {
           phutil_safe_html(str_replace("\t", '  ', $line['data'])),
         ));
 
+      if ($this->coverage) {
+        require_celerity_resource('differential-changeset-view-css');
+        $cov_index = $line['line'] - 1;
+
+        if (isset($this->coverage[$cov_index])) {
+          $cov_class = $this->coverage[$cov_index];
+        } else {
+          $cov_class = 'N';
+        }
+
+        $blame[] = phutil_tag(
+          'td',
+          array(
+            'class' => 'cov cov-'.$cov_class,
+          ),
+          '');
+      }
+
       $rows[] = phutil_tag(
         'tr',
         array(
@@ -786,26 +830,51 @@ final class DiffusionBrowseFileController extends DiffusionBrowseController {
         ),
         $blame);
 
-      $rows = array_merge($rows, $this->renderInlines(
+      $cur_inlines = $this->renderInlines(
         idx($inlines, $line['line'], array()),
-        ($show_blame),
-        $engine));
+        $show_blame,
+        $this->coverage,
+        $engine);
+      foreach ($cur_inlines as $cur_inline) {
+        $rows[] = $cur_inline;
+      }
     }
 
     return $rows;
   }
 
-  private function renderInlines(array $inlines, $needs_blame, $engine) {
+  private function renderInlines(
+    array $inlines,
+    $needs_blame,
+    $has_coverage,
+    $engine) {
+
     $rows = array();
     foreach ($inlines as $inline) {
-      $inline_view = id(new DifferentialInlineCommentView())
+
+      // TODO: This should use modern scaffolding code.
+
+      $inline_view = id(new PHUIDiffInlineCommentDetailView())
+        ->setUser($this->getViewer())
         ->setMarkupEngine($engine)
         ->setInlineComment($inline)
         ->render();
-      $row = array_fill(0, ($needs_blame ? 5 : 1), phutil_tag('th'));
+
+      $row = array_fill(0, ($needs_blame ? 3 : 1), phutil_tag('th'));
+
       $row[] = phutil_tag('td', array(), $inline_view);
+
+      if ($has_coverage) {
+        $row[] = phutil_tag(
+          'td',
+          array(
+            'class' => 'cov cov-I',
+          ));
+      }
+
       $rows[] = phutil_tag('tr', array('class' => 'inline'), $row);
     }
+
     return $rows;
   }
 
@@ -820,7 +889,6 @@ final class DiffusionBrowseFileController extends DiffusionBrowseController {
 
     $unguarded = AphrontWriteGuard::beginScopedUnguardedWrites();
       $file->attachToObject(
-        $this->getRequest()->getUser(),
         $this->getDiffusionRequest()->getRepository()->getPHID());
     unset($unguarded);
 
@@ -829,7 +897,7 @@ final class DiffusionBrowseFileController extends DiffusionBrowseController {
 
   private function buildRawResponse($path, $data) {
     $file = $this->loadFileForData($path, $data);
-    return id(new AphrontRedirectResponse())->setURI($file->getBestURI());
+    return $file->getRedirectResponse();
   }
 
   private function buildImageCorpus($file_uri) {
@@ -842,21 +910,34 @@ final class DiffusionBrowseFileController extends DiffusionBrowseController {
           'src' => $file_uri,
         )));
 
+    $file = $this->renderFileButton($file_uri);
+    $header = id(new PHUIHeaderView())
+      ->setHeader(pht('Image'))
+      ->addActionLink($file);
+
     return id(new PHUIObjectBoxView())
-      ->setHeaderText(pht('Image'))
+      ->setHeader($header)
       ->addPropertyList($properties);
   }
 
   private function buildBinaryCorpus($file_uri, $data) {
-    $properties = new PHUIPropertyListView();
 
-    $size = strlen($data);
-    $properties->addTextContent(
-      pht(
-        'This is a binary file. It is %s byte(s) in length.',
-        new PhutilNumber($size)));
+    $size = new PhutilNumber(strlen($data));
+    $text = pht('This is a binary file. It is %s byte(s) in length.', $size);
+    $text = id(new PHUIBoxView())
+      ->addPadding(PHUI::PADDING_LARGE)
+      ->appendChild($text);
 
-    return $properties;
+    $file = $this->renderFileButton($file_uri);
+    $header = id(new PHUIHeaderView())
+      ->setHeader(pht('Details'))
+      ->addActionLink($file);
+
+    $box = id(new PHUIObjectBoxView())
+      ->setHeader($header)
+      ->appendChild($text);
+
+    return $box;
   }
 
   private function buildBeforeResponse($before) {
@@ -943,7 +1024,8 @@ final class DiffusionBrowseFileController extends DiffusionBrowseController {
       array(
         'commit' => $drequest->getCommit(),
         'path' => $drequest->getPath(),
-        'againstCommit' => $target_commit));
+        'againstCommit' => $target_commit,
+      ));
     $old_line = 0;
     $new_line = 0;
 

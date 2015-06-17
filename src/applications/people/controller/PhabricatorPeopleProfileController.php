@@ -20,6 +20,7 @@ final class PhabricatorPeopleProfileController
       ->setViewer($viewer)
       ->withUsernames(array($this->username))
       ->needProfileImage(true)
+      ->needAvailability(true)
       ->executeOne();
     if (!$user) {
       return new Aphront404Response();
@@ -30,10 +31,10 @@ final class PhabricatorPeopleProfileController
     $profile = $user->loadUserProfile();
     $username = phutil_escape_uri($user->getUserName());
 
-    $picture = $user->loadProfileImageURI();
+    $picture = $user->getProfileImageURI();
 
     $header = id(new PHUIHeaderView())
-      ->setHeader($user->getUserName().' ('.$user->getRealName().')')
+      ->setHeader($user->getFullName())
       ->setSubheader($profile->getTitle())
       ->setImage($picture);
 
@@ -42,11 +43,14 @@ final class PhabricatorPeopleProfileController
       ->setObjectURI($this->getRequest()->getRequestURI())
       ->setUser($viewer);
 
-    $can_edit = ($user->getPHID() == $viewer->getPHID());
+    $can_edit = PhabricatorPolicyFilter::hasCapability(
+      $viewer,
+      $user,
+      PhabricatorPolicyCapability::CAN_EDIT);
 
     $actions->addAction(
       id(new PhabricatorActionView())
-        ->setIcon('edit')
+        ->setIcon('fa-pencil')
         ->setName(pht('Edit Profile'))
         ->setHref($this->getApplicationURI('editprofile/'.$user->getID().'/'))
         ->setDisabled(!$can_edit)
@@ -54,7 +58,7 @@ final class PhabricatorPeopleProfileController
 
     $actions->addAction(
       id(new PhabricatorActionView())
-        ->setIcon('image')
+        ->setIcon('fa-picture-o')
         ->setName(pht('Edit Profile Picture'))
         ->setHref($this->getApplicationURI('picture/'.$user->getID().'/'))
         ->setDisabled(!$can_edit)
@@ -63,30 +67,100 @@ final class PhabricatorPeopleProfileController
     if ($viewer->getIsAdmin()) {
       $actions->addAction(
         id(new PhabricatorActionView())
-          ->setIcon('blame')
-          ->setName(pht('Administrate User'))
-          ->setHref($this->getApplicationURI('edit/'.$user->getID().'/')));
+          ->setIcon('fa-wrench')
+          ->setName(pht('Edit Settings'))
+          ->setDisabled(!$can_edit)
+          ->setWorkflow(!$can_edit)
+          ->setHref('/settings/'.$user->getID().'/'));
+
+      if ($user->getIsAdmin()) {
+        $empower_icon = 'fa-arrow-circle-o-down';
+        $empower_name = pht('Remove Administrator');
+      } else {
+        $empower_icon = 'fa-arrow-circle-o-up';
+        $empower_name = pht('Make Administrator');
+      }
+
+      $actions->addAction(
+        id(new PhabricatorActionView())
+          ->setIcon($empower_icon)
+          ->setName($empower_name)
+          ->setDisabled(($user->getPHID() == $viewer->getPHID()))
+          ->setWorkflow(true)
+          ->setHref($this->getApplicationURI('empower/'.$user->getID().'/')));
+
+      $actions->addAction(
+        id(new PhabricatorActionView())
+          ->setIcon('fa-tag')
+          ->setName(pht('Change Username'))
+          ->setWorkflow(true)
+          ->setHref($this->getApplicationURI('rename/'.$user->getID().'/')));
+
+      if ($user->getIsDisabled()) {
+        $disable_icon = 'fa-check-circle-o';
+        $disable_name = pht('Enable User');
+      } else {
+        $disable_icon = 'fa-ban';
+        $disable_name = pht('Disable User');
+      }
+
+      $actions->addAction(
+        id(new PhabricatorActionView())
+          ->setIcon($disable_icon)
+          ->setName($disable_name)
+          ->setDisabled(($user->getPHID() == $viewer->getPHID()))
+          ->setWorkflow(true)
+          ->setHref($this->getApplicationURI('disable/'.$user->getID().'/')));
+
+      $actions->addAction(
+        id(new PhabricatorActionView())
+          ->setIcon('fa-times')
+          ->setName(pht('Delete User'))
+          ->setDisabled(($user->getPHID() == $viewer->getPHID()))
+          ->setWorkflow(true)
+          ->setHref($this->getApplicationURI('delete/'.$user->getID().'/')));
+
+      $actions->addAction(
+        id(new PhabricatorActionView())
+          ->setIcon('fa-envelope')
+          ->setName(pht('Send Welcome Email'))
+          ->setWorkflow(true)
+          ->setHref($this->getApplicationURI('welcome/'.$user->getID().'/')));
     }
 
     $properties = $this->buildPropertyView($user, $actions);
+    $name = $user->getUsername();
 
     $crumbs = $this->buildApplicationCrumbs();
-    $crumbs->addTextCrumb($user->getUsername());
-    $feed = $this->renderUserFeed($user);
+    $crumbs->addTextCrumb($name);
+
+    $class = 'PhabricatorConpherenceApplication';
+    if (PhabricatorApplication::isClassInstalledForViewer($class, $viewer)) {
+      $href = '/conpherence/new/?participant='.$user->getPHID();
+      $image = id(new PHUIIconView())
+          ->setIconFont('fa-comments');
+      $button = id(new PHUIButtonView())
+        ->setTag('a')
+        ->setColor(PHUIButtonView::SIMPLE)
+        ->setIcon($image)
+        ->setHref($href)
+        ->setText(pht('Send Message'))
+        ->setWorkflow(true);
+      $header->addActionLink($button);
+    }
 
     $object_box = id(new PHUIObjectBoxView())
       ->setHeader($header)
       ->addPropertyList($properties);
 
+    $nav = $this->buildIconNavView($user);
+    $nav->selectFilter("{$name}/");
+    $nav->appendChild($object_box);
+
     return $this->buildApplicationPage(
-      array(
-        $crumbs,
-        $object_box,
-        $feed,
-      ),
+      $nav,
       array(
         'title' => $user->getUsername(),
-        'device' => true,
       ));
   }
 
@@ -108,25 +182,4 @@ final class PhabricatorPeopleProfileController
     return $view;
   }
 
-  private function renderUserFeed(PhabricatorUser $user) {
-    $viewer = $this->getRequest()->getUser();
-
-    $query = new PhabricatorFeedQuery();
-    $query->setFilterPHIDs(
-      array(
-        $user->getPHID(),
-      ));
-    $query->setLimit(100);
-    $query->setViewer($viewer);
-    $stories = $query->execute();
-
-    $builder = new PhabricatorFeedBuilder($stories);
-    $builder->setUser($viewer);
-    $builder->setShowHovercards(true);
-    $view = $builder->buildView();
-
-    return phutil_tag_div(
-      'profile-feed',
-      $view->render());
-  }
 }

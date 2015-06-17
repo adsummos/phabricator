@@ -77,8 +77,6 @@
  *                 "namespace" (e.g., JX.Pancake).
  * @param  map     Map of properties, see method documentation.
  * @return void
- *
- * @group install
  */
 JX.install = function(new_name, new_junk) {
 
@@ -157,8 +155,6 @@ JX.install = function(new_name, new_junk) {
  *
  * @param  junk     Map of properties, see method documentation.
  * @return function Constructor of a class created
- *
- * @group install
  */
 JX.createClass = function(junk) {
   var name = junk.name || '';
@@ -240,7 +236,7 @@ JX.createClass = function(junk) {
     };
   };
   var getter = function(prop) {
-    return function(v) {
+    return function() {
       return this[prop];
     };
   };

@@ -5,6 +5,9 @@ final class AphrontFormPolicyControl extends AphrontFormControl {
   private $object;
   private $capability;
   private $policies;
+  private $spacePHID;
+  private $templatePHIDType;
+  private $templateObject;
 
   public function setPolicyObject(PhabricatorPolicyInterface $object) {
     $this->object = $object;
@@ -14,6 +17,25 @@ final class AphrontFormPolicyControl extends AphrontFormControl {
   public function setPolicies(array $policies) {
     assert_instances_of($policies, 'PhabricatorPolicy');
     $this->policies = $policies;
+    return $this;
+  }
+
+  public function setSpacePHID($space_phid) {
+    $this->spacePHID = $space_phid;
+    return $this;
+  }
+
+  public function getSpacePHID() {
+    return $this->spacePHID;
+  }
+
+  public function setTemplatePHIDType($type) {
+    $this->templatePHIDType = $type;
+    return $this;
+  }
+
+  public function setTemplateObject($object) {
+    $this->templateObject = $object;
     return $this;
   }
 
@@ -48,9 +70,31 @@ final class AphrontFormPolicyControl extends AphrontFormControl {
 
   protected function getOptions() {
     $capability = $this->capability;
+    $policies = $this->policies;
+
+    // Exclude object policies which don't make sense here. This primarily
+    // filters object policies associated from template capabilities (like
+    // "Default Task View Policy" being set to "Task Author") so they aren't
+    // made available on non-template capabilities (like "Can Bulk Edit").
+    foreach ($policies as $key => $policy) {
+      if ($policy->getType() != PhabricatorPolicyType::TYPE_OBJECT) {
+        continue;
+      }
+
+      $rule = PhabricatorPolicyQuery::getObjectPolicyRule($policy->getPHID());
+      if (!$rule) {
+        continue;
+      }
+
+      $target = nonempty($this->templateObject, $this->object);
+      if (!$rule->canApplyToObject($target)) {
+        unset($policies[$key]);
+        continue;
+      }
+    }
 
     $options = array();
-    foreach ($this->policies as $policy) {
+    foreach ($policies as $policy) {
       if ($policy->getPHID() == PhabricatorPolicies::POLICY_PUBLIC) {
         // Never expose "Public" for capabilities which don't support it.
         $capobj = PhabricatorPolicyCapability::getCapabilityByKey($capability);
@@ -59,8 +103,12 @@ final class AphrontFormPolicyControl extends AphrontFormControl {
         }
       }
 
+      $policy_short_name = id(new PhutilUTF8StringTruncator())
+        ->setMaximumGlyphs(28)
+        ->truncateString($policy->getName());
+
       $options[$policy->getType()][$policy->getPHID()] = array(
-        'name' => phutil_utf8_shorten($policy->getName(), 28),
+        'name' => $policy_short_name,
         'full' => $policy->getName(),
         'icon' => $policy->getIcon(),
       );
@@ -103,6 +151,7 @@ final class AphrontFormPolicyControl extends AphrontFormControl {
       $options,
       array(
         PhabricatorPolicyType::TYPE_GLOBAL,
+        PhabricatorPolicyType::TYPE_OBJECT,
         PhabricatorPolicyType::TYPE_USER,
         PhabricatorPolicyType::TYPE_CUSTOM,
         PhabricatorPolicyType::TYPE_PROJECT,
@@ -113,10 +162,10 @@ final class AphrontFormPolicyControl extends AphrontFormControl {
 
   protected function renderInput() {
     if (!$this->object) {
-      throw new Exception(pht("Call setPolicyObject() before rendering!"));
+      throw new Exception(pht('Call setPolicyObject() before rendering!'));
     }
     if (!$this->capability) {
-      throw new Exception(pht("Call setCapability() before rendering!"));
+      throw new Exception(pht('Call setCapability() before rendering!'));
     }
 
     $policy = $this->object->getPolicy($this->capability);
@@ -161,10 +210,21 @@ final class AphrontFormPolicyControl extends AphrontFormControl {
     $icons = array();
     foreach (igroup($flat_options, 'icon') as $icon => $ignored) {
       $icons[$icon] = id(new PHUIIconView())
-        ->setSpriteSheet(PHUIIconView::SPRITE_STATUS)
-        ->setSpriteIcon($icon);
+        ->setIconFont($icon);
     }
 
+
+    if ($this->templatePHIDType) {
+      $context_path = 'template/'.$this->templatePHIDType.'/';
+    } else {
+      $object_phid = $this->object->getPHID();
+      if ($object_phid) {
+        $context_path = 'object/'.$object_phid.'/';
+      } else {
+        $object_type = phid_get_type($this->object->generatePHID());
+        $context_path = 'type/'.$object_type.'/';
+      }
+    }
 
     Javelin::initBehavior(
       'policy-control',
@@ -177,16 +237,23 @@ final class AphrontFormPolicyControl extends AphrontFormControl {
         'icons' => $icons,
         'labels' => $labels,
         'value' => $this->getValue(),
+        'capability' => $this->capability,
+        'editURI' => '/policy/edit/'.$context_path,
         'customPlaceholder' => $this->getCustomPolicyPlaceholder(),
       ));
 
-    $selected = $flat_options[$this->getValue()];
+    $selected = idx($flat_options, $this->getValue(), array());
+    $selected_icon = idx($selected, 'icon');
+    $selected_name = idx($selected, 'name');
+
+    $spaces_control = $this->buildSpacesControl();
 
     return phutil_tag(
       'div',
       array(
       ),
       array(
+        $spaces_control,
         javelin_tag(
           'a',
           array(
@@ -205,8 +272,8 @@ final class AphrontFormPolicyControl extends AphrontFormControl {
                 'class' => 'phui-button-text',
               ),
               array(
-                $icons[$selected['icon']],
-                $selected['name'],
+                idx($icons, $selected_icon),
+                $selected_name,
               )),
           )),
         $input,
@@ -224,6 +291,37 @@ final class AphrontFormPolicyControl extends AphrontFormControl {
 
   private function getCustomPolicyPlaceholder() {
     return 'custom:placeholder';
+  }
+
+  private function buildSpacesControl() {
+    if ($this->capability != PhabricatorPolicyCapability::CAN_VIEW) {
+      return null;
+    }
+
+    if (!($this->object instanceof PhabricatorSpacesInterface)) {
+      return null;
+    }
+
+    $viewer = $this->getUser();
+    if (!PhabricatorSpacesNamespaceQuery::getViewerSpacesExist($viewer)) {
+      return null;
+    }
+
+    $space_phid = $this->getSpacePHID();
+    if ($space_phid === null) {
+      $space_phid = $viewer->getDefaultSpacePHID();
+    }
+
+    $select = AphrontFormSelectControl::renderSelectTag(
+      $space_phid,
+      PhabricatorSpacesNamespaceQuery::getSpaceOptionsForViewer(
+        $viewer,
+        $space_phid),
+      array(
+        'name' => 'spacePHID',
+      ));
+
+    return $select;
   }
 
 }

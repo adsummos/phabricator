@@ -2,7 +2,9 @@
 
 final class PhabricatorPolicy
   extends PhabricatorPolicyDAO
-  implements PhabricatorPolicyInterface {
+  implements
+    PhabricatorPolicyInterface,
+    PhabricatorDestructibleInterface {
 
   const ACTION_ALLOW = 'allow';
   const ACTION_DENY = 'deny';
@@ -11,6 +13,7 @@ final class PhabricatorPolicy
   private $shortName;
   private $type;
   private $href;
+  private $workflow;
   private $icon;
 
   protected $rules = array();
@@ -18,11 +21,21 @@ final class PhabricatorPolicy
 
   private $ruleObjects = self::ATTACHABLE;
 
-  public function getConfiguration() {
+  protected function getConfiguration() {
     return array(
       self::CONFIG_AUX_PHID => true,
       self::CONFIG_SERIALIZATION => array(
         'rules' => self::SERIALIZATION_JSON,
+      ),
+      self::CONFIG_COLUMN_SCHEMA => array(
+        'defaultAction' => 'text32',
+      ),
+      self::CONFIG_KEY_SCHEMA => array(
+        'key_phid' => null,
+        'phid' => array(
+          'columns' => array('phid'),
+          'unique' => true,
+        ),
       ),
     ) + parent::getConfiguration();
   }
@@ -41,19 +54,28 @@ final class PhabricatorPolicy
       return PhabricatorPolicyQuery::getGlobalPolicy($policy_identifier);
     }
 
+    $policy = PhabricatorPolicyQuery::getObjectPolicy($policy_identifier);
+    if ($policy) {
+      return $policy;
+    }
+
     if (!$handle) {
       throw new Exception(
-        "Policy identifier is an object PHID ('{$policy_identifier}'), but no ".
-        "object handle was provided. A handle must be provided for object ".
-        "policies.");
+        pht(
+          "Policy identifier is an object PHID ('%s'), but no object handle ".
+          "was provided. A handle must be provided for object policies.",
+          $policy_identifier));
     }
 
     $handle_phid = $handle->getPHID();
     if ($policy_identifier != $handle_phid) {
       throw new Exception(
-        "Policy identifier is an object PHID ('{$policy_identifier}'), but ".
-        "the provided handle has a different PHID ('{$handle_phid}'). The ".
-        "handle must correspond to the policy identifier.");
+        pht(
+          "Policy identifier is an object PHID ('%s'), but the provided ".
+          "handle has a different PHID ('%s'). The handle must correspond ".
+          "to the policy identifier.",
+          $policy_identifier,
+          $handle_phid));
     }
 
     $policy = id(new PhabricatorPolicy())
@@ -62,11 +84,11 @@ final class PhabricatorPolicy
 
     $phid_type = phid_get_type($policy_identifier);
     switch ($phid_type) {
-      case PhabricatorProjectPHIDTypeProject::TYPECONST:
+      case PhabricatorProjectProjectPHIDType::TYPECONST:
         $policy->setType(PhabricatorPolicyType::TYPE_PROJECT);
         $policy->setName($handle->getName());
         break;
-      case PhabricatorPeoplePHIDTypeUser::TYPECONST:
+      case PhabricatorPeopleUserPHIDType::TYPECONST:
         $policy->setType(PhabricatorPolicyType::TYPE_USER);
         $policy->setName($handle->getFullName());
         break;
@@ -132,25 +154,43 @@ final class PhabricatorPolicy
     return $this->href;
   }
 
+  public function setWorkflow($workflow) {
+    $this->workflow = $workflow;
+    return $this;
+  }
+
+  public function getWorkflow() {
+    return $this->workflow;
+  }
+
+  public function setIcon($icon) {
+    $this->icon = $icon;
+    return $this;
+  }
+
   public function getIcon() {
+    if ($this->icon) {
+      return $this->icon;
+    }
+
     switch ($this->getType()) {
       case PhabricatorPolicyType::TYPE_GLOBAL:
         static $map = array(
-          PhabricatorPolicies::POLICY_PUBLIC  => 'policy-public',
-          PhabricatorPolicies::POLICY_USER    => 'policy-all',
-          PhabricatorPolicies::POLICY_ADMIN   => 'policy-admin',
-          PhabricatorPolicies::POLICY_NOONE   => 'policy-noone',
+          PhabricatorPolicies::POLICY_PUBLIC  => 'fa-globe',
+          PhabricatorPolicies::POLICY_USER    => 'fa-users',
+          PhabricatorPolicies::POLICY_ADMIN   => 'fa-eye',
+          PhabricatorPolicies::POLICY_NOONE   => 'fa-ban',
         );
-        return idx($map, $this->getPHID(), 'policy-unknown');
+        return idx($map, $this->getPHID(), 'fa-question-circle');
       case PhabricatorPolicyType::TYPE_USER:
-        return 'policy-user';
+        return 'fa-user';
       case PhabricatorPolicyType::TYPE_PROJECT:
-        return 'policy-project';
+        return 'fa-briefcase';
       case PhabricatorPolicyType::TYPE_CUSTOM:
       case PhabricatorPolicyType::TYPE_MASKED:
-        return 'policy-custom';
+        return 'fa-certificate';
       default:
-        return 'policy-unknown';
+        return 'fa-question-circle';
     }
   }
 
@@ -178,6 +218,11 @@ final class PhabricatorPolicy
     PhabricatorUser $viewer,
     $policy) {
 
+    $rule = PhabricatorPolicyQuery::getObjectPolicyRule($policy);
+    if ($rule) {
+      return $rule->getPolicyExplanation();
+    }
+
     switch ($policy) {
       case PhabricatorPolicies::POLICY_PUBLIC:
         return pht('This object is public.');
@@ -194,11 +239,11 @@ final class PhabricatorPolicy
           ->executeOne();
 
         $type = phid_get_type($policy);
-        if ($type == PhabricatorProjectPHIDTypeProject::TYPECONST) {
+        if ($type == PhabricatorProjectProjectPHIDType::TYPECONST) {
           return pht(
             'Members of the project "%s" can take this action.',
             $handle->getFullName());
-        } else if ($type == PhabricatorPeoplePHIDTypeUser::TYPECONST) {
+        } else if ($type == PhabricatorPeopleUserPHIDType::TYPECONST) {
           return pht(
             '%s can take this action.',
             $handle->getFullName());
@@ -225,20 +270,20 @@ final class PhabricatorPolicy
     }
   }
 
-  public function renderDescription($icon=false) {
+  public function renderDescription($icon = false) {
     $img = null;
     if ($icon) {
       $img = id(new PHUIIconView())
-        ->setSpriteSheet(PHUIIconView::SPRITE_STATUS)
-        ->setSpriteIcon($this->getIcon());
+        ->setIconFont($this->getIcon());
     }
 
     if ($this->getHref()) {
-      $desc = phutil_tag(
+      $desc = javelin_tag(
         'a',
         array(
           'href' => $this->getHref(),
           'class' => 'policy-link',
+          'sigil' => $this->getWorkflow() ? 'workflow' : null,
         ),
         array(
           $img,
@@ -256,7 +301,7 @@ final class PhabricatorPolicy
       case PhabricatorPolicyType::TYPE_PROJECT:
         return pht('%s (Project)', $desc);
       case PhabricatorPolicyType::TYPE_CUSTOM:
-        return pht('Custom Policy');
+        return $desc;
       case PhabricatorPolicyType::TYPE_MASKED:
         return pht(
           '%s (You do not have permission to view policy details.)',
@@ -340,5 +385,16 @@ final class PhabricatorPolicy
   public function describeAutomaticCapability($capability) {
     return null;
   }
+
+
+/* -(  PhabricatorDestructibleInterface  )----------------------------------- */
+
+
+  public function destroyObjectPermanently(
+    PhabricatorDestructionEngine $engine) {
+
+    $this->delete();
+  }
+
 
 }

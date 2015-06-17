@@ -1,8 +1,5 @@
 <?php
 
-/**
- * @group pholio
- */
 abstract class PholioController extends PhabricatorController {
 
   public function buildSideNavView($for_app = false) {
@@ -24,14 +21,14 @@ abstract class PholioController extends PhabricatorController {
     return $nav;
   }
 
-  public function buildApplicationCrumbs() {
+  protected function buildApplicationCrumbs() {
     $crumbs = parent::buildApplicationCrumbs();
 
     $crumbs->addAction(
       id(new PHUIListItemView())
         ->setName(pht('Create Mock'))
         ->setHref($this->getApplicationURI('new/'))
-        ->setIcon('create'));
+        ->setIcon('fa-plus-square'));
 
     return $crumbs;
   }
@@ -39,7 +36,5 @@ abstract class PholioController extends PhabricatorController {
   public function buildApplicationMenu() {
     return $this->buildSideNavView(true)->getMenu();
   }
-
-
 
 }

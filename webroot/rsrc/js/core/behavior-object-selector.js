@@ -63,9 +63,9 @@ JX.behavior('phabricator-object-selector', function(config) {
 
     var some_icon = JX.$N(
       'span',
-      {className: 'phui-icon-view sprite-icons ' +
-        'icons-popout phabricator-object-selector-popicon'},
-      "");
+      {className: 'phui-icon-view phui-font-fa ' +
+        'fa-external-link phabricator-object-selector-popicon'},
+      '');
 
     var view_object_link = JX.$N(
       'a',
@@ -74,7 +74,7 @@ JX.behavior('phabricator-object-selector', function(config) {
 
     var select_object_link = JX.$N(
       'a',
-      {href: '#', sigil: 'object-attacher'},
+      {href: h.uri, sigil: 'object-attacher'},
       h.name);
 
     var select_object_button = JX.$N(
@@ -182,7 +182,7 @@ JX.behavior('phabricator-object-selector', function(config) {
     JX.$(config.query),
     ['change', 'keydown', 'keyup', 'keypress'],
     null,
-    function(e) {
+    function() {
       var cur_value = JX.$(config.query).value;
       if (last_value == cur_value) {
         return;

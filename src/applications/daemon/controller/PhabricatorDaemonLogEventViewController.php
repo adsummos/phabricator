@@ -23,9 +23,9 @@ final class PhabricatorDaemonLogEventViewController
       ->setCombinedLog(true)
       ->setShowFullMessage(true);
 
-    $log_panel = new AphrontPanelView();
+    $log_panel = new PHUIObjectBoxView();
+    $log_panel->setHeaderText(pht('Combined Log'));
     $log_panel->appendChild($event_view);
-    $log_panel->setNoBackground();
 
     $daemon_id = $event->getLogID();
 

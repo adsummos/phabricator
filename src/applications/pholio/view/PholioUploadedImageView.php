@@ -1,8 +1,5 @@
 <?php
 
-/**
- * @group pholio
- */
 final class PholioUploadedImageView extends AphrontView {
 
   private $image;
@@ -34,17 +31,22 @@ final class PholioUploadedImageView extends AphrontView {
       ->setSigil('image-title')
       ->setLabel(pht('Title'));
 
-    $description = id(new AphrontFormTextAreaControl())
+    $description = id(new PhabricatorRemarkupControl())
+      ->setUser($this->getUser())
       ->setName('description_'.$phid)
       ->setValue($image->getDescription())
       ->setSigil('image-description')
       ->setLabel(pht('Description'));
 
+    $xform = PhabricatorFileTransform::getTransformByKey(
+      PhabricatorFileThumbnailTransform::TRANSFORM_PINBOARD);
+    $thumbnail_uri = $file->getURIForTransform($xform);
+
     $thumb_frame = phutil_tag(
       'div',
       array(
         'class' => 'pholio-thumb-frame',
-        'style' => 'background-image: url('.$file->getThumb280x210URI().');',
+        'style' => 'background-image: url('.$thumbnail_uri.');',
       ));
 
     $handle = javelin_tag(

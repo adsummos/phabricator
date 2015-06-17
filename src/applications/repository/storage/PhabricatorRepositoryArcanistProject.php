@@ -1,56 +1,41 @@
 <?php
 
-/**
- * @group repository
- */
 final class PhabricatorRepositoryArcanistProject
   extends PhabricatorRepositoryDAO
-  implements PhabricatorPolicyInterface {
+  implements
+    PhabricatorPolicyInterface,
+    PhabricatorDestructibleInterface {
 
   protected $name;
   protected $repositoryID;
 
-  protected $symbolIndexLanguages = array();
-  protected $symbolIndexProjects  = array();
-
   private $repository = self::ATTACHABLE;
 
-  public function getConfiguration() {
+  protected function getConfiguration() {
     return array(
       self::CONFIG_AUX_PHID   => true,
       self::CONFIG_TIMESTAMPS => false,
-      self::CONFIG_SERIALIZATION => array(
-        'symbolIndexLanguages' => self::SERIALIZATION_JSON,
-        'symbolIndexProjects'  => self::SERIALIZATION_JSON,
+      self::CONFIG_COLUMN_SCHEMA => array(
+        'name' => 'text128',
+        'repositoryID' => 'id?',
+      ),
+      self::CONFIG_KEY_SCHEMA => array(
+        'key_phid' => null,
+        'phid' => array(
+          'columns' => array('phid'),
+          'unique' => true,
+        ),
+        'name' => array(
+          'columns' => array('name'),
+          'unique' => true,
+        ),
       ),
     ) + parent::getConfiguration();
   }
 
   public function generatePHID() {
     return PhabricatorPHID::generateNewPHID(
-      PhabricatorRepositoryPHIDTypeArcanistProject::TYPECONST);
-  }
-
-  // TODO: Remove. Also, T603.
-  public function loadRepository() {
-    if (!$this->getRepositoryID()) {
-      return null;
-    }
-    return id(new PhabricatorRepository())->load($this->getRepositoryID());
-  }
-
-  public function delete() {
-    $this->openTransaction();
-
-      queryfx(
-        $this->establishConnection('w'),
-        'DELETE FROM %T WHERE arcanistProjectID = %d',
-        id(new PhabricatorRepositorySymbol())->getTableName(),
-        $this->getID());
-
-      $result = parent::delete();
-    $this->saveTransaction();
-    return $result;
+      PhabricatorRepositoryArcanistProjectPHIDType::TYPECONST);
   }
 
   public function getRepository() {
@@ -88,6 +73,17 @@ final class PhabricatorRepositoryArcanistProject
 
   public function describeAutomaticCapability($capability) {
     return null;
+  }
+
+
+/* -(  PhabricatorDestructibleInterface  )----------------------------------- */
+
+  public function destroyObjectPermanently(
+    PhabricatorDestructionEngine $engine) {
+
+    $this->openTransaction();
+    $this->delete();
+    $this->saveTransaction();
   }
 
 }

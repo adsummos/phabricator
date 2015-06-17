@@ -44,13 +44,14 @@ final class PhabricatorMacroMemeDialogController
       }
     }
 
-    $view = id(new PHUIFormLayoutView())
-      ->appendChild(
+    $view = id(new AphrontFormView())
+      ->setUser($user)
+      ->appendControl(
         id(new AphrontFormTokenizerControl())
           ->setLabel(pht('Macro'))
           ->setName('macro')
           ->setLimit(1)
-          ->setDatasource('/typeahead/common/macros/')
+          ->setDatasource(new PhabricatorMacroDatasource())
           ->setError($e_macro))
       ->appendChild(
         id(new AphrontFormTextControl())
@@ -66,9 +67,9 @@ final class PhabricatorMacroMemeDialogController
     $dialog = id(new AphrontDialogView())
       ->setUser($user)
       ->setTitle(pht('Create Meme'))
-      ->appendChild($view)
+      ->appendForm($view)
       ->addCancelButton('/')
-      ->addSubmitButton(pht('rofllolo!!~'));
+      ->addSubmitButton(pht('Llama Diorama'));
 
     return id(new AphrontDialogResponse())->setDialog($dialog);
   }

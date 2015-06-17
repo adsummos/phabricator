@@ -24,6 +24,10 @@ final class PhabricatorRepositoryTransaction
   const TYPE_CREDENTIAL = 'repo:credential';
   const TYPE_DANGEROUS = 'repo:dangerous';
   const TYPE_CLONE_NAME = 'repo:clone-name';
+  const TYPE_SERVICE = 'repo:service';
+  const TYPE_SYMBOLS_SOURCES = 'repo:symbol-source';
+  const TYPE_SYMBOLS_LANGUAGE = 'repo:symbol-language';
+  const TYPE_STAGING_URI = 'repo:staging-uri';
 
   // TODO: Clean up these legacy transaction types.
   const TYPE_SSH_LOGIN = 'repo:ssh-login';
@@ -37,7 +41,7 @@ final class PhabricatorRepositoryTransaction
   }
 
   public function getApplicationTransactionType() {
-    return PhabricatorRepositoryPHIDTypeRepository::TYPECONST;
+    return PhabricatorRepositoryRepositoryPHIDType::TYPECONST;
   }
 
   public function getApplicationTransactionCommentObject() {
@@ -52,8 +56,21 @@ final class PhabricatorRepositoryTransaction
 
     switch ($this->getTransactionType()) {
       case self::TYPE_PUSH_POLICY:
-        $phids[] = $old;
-        $phids[] = $new;
+      case self::TYPE_SERVICE:
+        if ($old) {
+          $phids[] = $old;
+        }
+        if ($new) {
+          $phids[] = $new;
+        }
+        break;
+      case self::TYPE_SYMBOLS_SOURCES:
+        if ($old) {
+          $phids = array_merge($phids, $old);
+        }
+        if ($new) {
+          $phids = array_merge($phids, $new);
+        }
         break;
     }
 
@@ -89,7 +106,7 @@ final class PhabricatorRepositoryTransaction
   public function getIcon() {
     switch ($this->getTransactionType()) {
       case self::TYPE_VCS:
-        return 'create';
+        return 'fa-plus';
     }
     return parent::getIcon();
   }
@@ -338,8 +355,8 @@ final class PhabricatorRepositoryTransaction
         return pht(
           '%s changed the push policy of this repository from "%s" to "%s".',
           $this->renderHandleLink($author_phid),
-          $this->renderPolicyName($old),
-          $this->renderPolicyName($new));
+          $this->renderPolicyName($old, 'old'),
+          $this->renderPolicyName($new, 'new'));
       case self::TYPE_DANGEROUS:
         if ($new) {
           return pht(
@@ -367,6 +384,58 @@ final class PhabricatorRepositoryTransaction
             $old,
             $new);
         }
+      case self::TYPE_SERVICE:
+        if (strlen($old) && !strlen($new)) {
+          return pht(
+            '%s moved storage for this repository from %s to local.',
+            $this->renderHandleLink($author_phid),
+            $this->renderHandleLink($old));
+        } else if (!strlen($old) && strlen($new)) {
+          // TODO: Possibly, we should distinguish between automatic assignment
+          // on creation vs explicit adjustment.
+          return pht(
+            '%s set storage for this repository to %s.',
+            $this->renderHandleLink($author_phid),
+            $this->renderHandleLink($new));
+        } else {
+          return pht(
+            '%s moved storage for this repository from %s to %s.',
+            $this->renderHandleLink($author_phid),
+            $this->renderHandleLink($old),
+            $this->renderHandleLink($new));
+        }
+      case self::TYPE_SYMBOLS_SOURCES:
+        return pht(
+          '%s changed symbol sources from %s to %s.',
+          $this->renderHandleLink($author_phid),
+          empty($old) ? pht('None') : $this->renderHandleList($old),
+          empty($new) ? pht('None') : $this->renderHandleList($new));
+
+      case self::TYPE_SYMBOLS_LANGUAGE:
+        return pht('%s changed indexed languages from %s to %s.',
+          $this->renderHandleLink($author_phid),
+          $old ? implode(', ', $old) : pht('Any'),
+          $new ? implode(', ', $new) : pht('Any'));
+
+      case self::TYPE_STAGING_URI:
+        if (!$old) {
+          return pht(
+            '%s set "%s" as the staging area for this repository.',
+            $this->renderHandleLink($author_phid),
+            $new);
+        } else if (!$new) {
+          return pht(
+            '%s removed "%s" as the staging area for this repository.',
+            $this->renderHandleLink($author_phid),
+            $old);
+        } else {
+          return pht(
+            '%s changed the staging area for this repository from '.
+            '"%s" to "%s".',
+            $this->renderHandleLink($author_phid),
+            $old,
+            $new);
+        }
     }
 
     return parent::getTitle();
@@ -381,16 +450,10 @@ final class PhabricatorRepositoryTransaction
   }
 
   public function renderChangeDetails(PhabricatorUser $viewer) {
-    $old = $this->getOldValue();
-    $new = $this->getNewValue();
-
-    $view = id(new PhabricatorApplicationTransactionTextDiffDetailView())
-      ->setUser($viewer)
-      ->setOldText($old)
-      ->setNewText($new);
-
-    return $view->render();
+    return $this->renderTextCorpusChangeDetails(
+      $viewer,
+      $this->getOldValue(),
+      $this->getNewValue());
   }
 
 }
-
